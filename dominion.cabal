@@ -1,0 +1,28 @@
+name:                dominion
+version:             0.1.0.0
+-- synopsis:            
+-- description:         
+homepage:            http://adit.io
+license:             BSD3
+license-file:        LICENSE
+author:              Aditya Bhargava
+maintainer:          bluemangroupie@gmail.com
+-- copyright:           
+-- category:            
+build-type:          Simple
+cabal-version:       >=1.8
+
+executable dominion
+  build-depends:       base ==4.6.*
+  hs-source-dirs:      src
+  main-is: Main.hs
+
+executable dominion-spec
+  build-depends:       base ==4.6.*, hspec, dominion
+  hs-source-dirs:      spec, src
+  main-is:             Main.hs
+
+library
+  build-depends:       base ==4.6.*
+  exposed-modules:     Dominion
+  hs-source-dirs:      src
