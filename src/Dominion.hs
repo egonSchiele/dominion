@@ -8,6 +8,8 @@ import Data.Maybe
 import Control.Monad.State
 import Control.Concurrent
 import Control.Lens
+import Control.Monad.IO.Class
+import Text.Printf
 
 for = flip map
 
@@ -20,19 +22,19 @@ data GameState = GameState {
 
 makeLenses ''GameState
 
-getPlayer :: PlayerId -> State GameState P.Player
+getPlayer :: PlayerId -> StateT GameState IO P.Player
 getPlayer playerId = do
     state <- get
     return $ (state ^. players) !! playerId
 
-savePlayer :: P.Player -> PlayerId -> State GameState ()
+savePlayer :: P.Player -> PlayerId -> StateT GameState IO ()
 savePlayer player playerId = do
     state <- get
     -- WOO lenses!
     let newState = set (players . element playerId) player $ state
     put newState
 
-drawFromDeck :: PlayerId -> State GameState [C.Card]
+drawFromDeck :: PlayerId -> StateT GameState IO [C.Card]
 drawFromDeck playerId = do
     player <- getPlayer playerId
     let deck = player ^. P.deck
@@ -71,24 +73,34 @@ coinValue card = firstJust $ map effect (C.effects card)
           where effect (C.CoinValue num) = Just num
                 effect _ = Nothing
 
-purchases :: PlayerId -> C.Card -> State GameState ()
+purchases :: PlayerId -> C.Card -> StateT GameState IO ()
 purchases playerId card = do
     player <- getPlayer playerId
     let newPlayer = over P.discard (card:) player
     savePlayer newPlayer playerId
+    liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
     return ()
 
-playPlayer :: PlayerId -> State GameState ()
+discardHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
+discardHand playerId hand = do
+    player <- getPlayer playerId
+    let newPlayer = over P.discard (++hand) player
+    savePlayer newPlayer playerId
+    return ()
+
+playPlayer :: PlayerId -> StateT GameState IO ()
 playPlayer playerId = do
     hand <- drawFromDeck playerId
+    liftIO $ print (map C.name hand)
     purchaseCard (handValue hand)
+    discardHand playerId hand
   where
     purchaseCard money
       | money >= 6 = playerId `purchases` C.gold
       | money >= 3 = playerId `purchases` C.silver
       | otherwise  = playerId `purchases` C.copper
 
-game :: State GameState ()
+game :: StateT GameState IO ()
 game = do
          state <- get
          mapM_ (playPlayer . snd) (zip (state ^. players) [0..])

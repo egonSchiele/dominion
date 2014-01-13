@@ -31,9 +31,9 @@ cards = concatMap pileOf [ C.copper,
 run :: D.GameState -> IO ()
 run state = do
               let [p1, p2] = state ^. D.players
-              print (map C.name $ p1 ^. P.discard)
-              print (map C.name $ p2 ^. P.discard)
-              let (_, newState) = runState D.game state
+              -- print (map C.name $ p1 ^. P.deck)
+              -- print (map C.name $ p2 ^. P.deck)
+              (_, newState) <- runStateT D.game state
               threadDelay $ 1 * 500 * 1000
               run newState
 
