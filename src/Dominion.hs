@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Dominion where
 import qualified Player as P
 import qualified Card as C
@@ -5,31 +7,55 @@ import Control.Monad
 import Data.Maybe
 import Control.Monad.State
 import Control.Concurrent
+import Control.Lens
 
 for = flip map
 
+type PlayerId = Int
+
 data GameState = GameState {
-                    players :: [P.Player],
-                    cards :: [C.Card]
+                    _players :: [P.Player],
+                    _cards :: [C.Card]
 } deriving Show
 
--- TODO
--- drawFromDeck :: P.Player -> State GameState [Card]
--- drawFromDeck player = do
---     let deck = P.deck player
---     if (length deck) >= 5
---       then let newDeck = deck ++ P.discard player
---                newDiscard = []
---                draw = take 5 newDeck
---                newPlayer { P.deck = (drop 5 newDeck), P.discard = newDiscard }
---                savePlayer newPlayer
---                return draw
---       else let draw = take 5 deck
---                newPlayer { P.deck = (drop 5 deck) }
---                savePlayer newPlayer
---                return draw
+makeLenses ''GameState
 
-drawFromDeck player = take 5 (P.deck player)
+getPlayer :: PlayerId -> State GameState P.Player
+getPlayer playerId = do
+    state <- get
+    return $ (state ^. players) !! playerId
+
+savePlayer :: P.Player -> PlayerId -> State GameState ()
+savePlayer player playerId = do
+    state <- get
+    -- WOO lenses!
+    let newState = set (players . element playerId) player $ state
+    put newState
+
+drawFromDeck :: PlayerId -> State GameState [C.Card]
+drawFromDeck playerId = do
+    player <- getPlayer playerId
+    let deck = player ^. P.deck
+    if (length deck) >= 5
+      then drawFromFull
+      else shuffleDeck >> drawFromFull
+
+  where shuffleDeck = do
+          player <- getPlayer playerId
+          let discard = player ^. P.discard
+              -- TODO not sure of this syntax
+              newPlayer = set P.discard [] $ over P.deck (++ discard) player
+          savePlayer newPlayer playerId
+
+        drawFromFull = do
+          player <- getPlayer playerId
+          let deck = player ^. P.deck
+              draw = take 5 deck
+              newPlayer = over P.deck (drop 5) player
+          savePlayer newPlayer playerId
+          return draw
+
+-- drawFromDeck player = take 5 (P._deck player)
 
 -- number of treasures this hand has
 handValue :: [C.Card] -> Int
@@ -45,30 +71,24 @@ coinValue card = firstJust $ map effect (C.effects card)
           where effect (C.CoinValue num) = Just num
                 effect _ = Nothing
 
-purchases :: P.Player -> C.Card -> State GameState ()
-purchases player card = do
-    state <- get
-    let discards = P.discard player
-        players_ = players state
-        newPlayer = player { P.discard = card:discards }
-        newPlayers = for players_ $ \player_ ->
-                                        if (P.name player_) == (P.name newPlayer) then newPlayer else player_
-    put $ state { players = newPlayers }
+purchases :: PlayerId -> C.Card -> State GameState ()
+purchases playerId card = do
+    player <- getPlayer playerId
+    let newPlayer = over P.discard (card:) player
+    savePlayer newPlayer playerId
     return ()
 
-playPlayer :: P.Player -> State GameState ()
-playPlayer player = do
-    let hand = drawFromDeck player
+playPlayer :: PlayerId -> State GameState ()
+playPlayer playerId = do
+    hand <- drawFromDeck playerId
     purchaseCard (handValue hand)
   where
     purchaseCard money
-      | money >= 6 = player `purchases` C.gold
-      | money >= 3 = player `purchases` C.silver
-      | otherwise  = player `purchases` C.copper
+      | money >= 6 = playerId `purchases` C.gold
+      | money >= 3 = playerId `purchases` C.silver
+      | otherwise  = playerId `purchases` C.copper
 
 game :: State GameState ()
 game = do
          state <- get
-         let [player1, player2] = players state
-         playPlayer player1
-         playPlayer player2
+         mapM_ (playPlayer . snd) (zip (state ^. players) [0..])

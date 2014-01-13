@@ -1,7 +1,12 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Player where
 import qualified Card as C
+import Control.Lens
+
 data Player = Player {
-                name :: String,
-                deck :: [C.Card],
-                discard :: [C.Card]
+                _name :: String,
+                _deck :: [C.Card],
+                _discard :: [C.Card]
 } deriving Show
+
+makeLenses ''Player

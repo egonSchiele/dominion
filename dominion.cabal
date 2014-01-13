@@ -13,6 +13,6 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 executable dominion
-  build-depends:       base ==4.6.*, mtl ==2.1.2
+  build-depends:       base ==4.6.*, mtl ==2.1.2, lens ==3.9.0.2
   hs-source-dirs:      src
   main-is: Main.hs

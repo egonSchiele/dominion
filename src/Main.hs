@@ -3,6 +3,7 @@ import qualified Player as P
 import qualified Card as C
 import Control.Monad.State
 import Control.Concurrent
+import Control.Lens
 
 makePlayer :: String -> P.Player
 makePlayer name = P.Player name (7 `cardsOf` C.copper ++ 3 `cardsOf` C.estate) []
@@ -29,9 +30,9 @@ cards = concatMap pileOf [ C.copper,
 
 run :: D.GameState -> IO ()
 run state = do
-              let [p1, p2] = D.players state
-              print (map C.name $ P.discard p1)
-              print (map C.name $ P.discard p2)
+              let [p1, p2] = state ^. D.players
+              print (map C.name $ p1 ^. P.discard)
+              print (map C.name $ p2 ^. P.discard)
               let (_, newState) = runState D.game state
               threadDelay $ 1 * 500 * 1000
               run newState
