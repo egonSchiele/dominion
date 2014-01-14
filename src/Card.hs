@@ -1,14 +1,14 @@
 module Card where
-data CardType = Action | Attack | Reaction | Treasure | Victory | Duration deriving Show
+data CardType = Action | Attack | Reaction | Treasure | Victory | Duration deriving (Show, Eq)
 
-data CardEffect = CoinValue Int | VPValue Int | PlusDraw Int | PlusCoin Int | PlusBuy Int | PlusAction Int | Trash Int | DurationDraw Int | DurationAction Int | DurationCoin Int | DurationBuy Int deriving Show
+data CardEffect = CoinValue Int | VPValue Int | PlusDraw Int | PlusCoin Int | PlusBuy Int | PlusAction Int | Trash Int | DurationDraw Int | DurationAction Int | DurationCoin Int | DurationBuy Int deriving (Show, Eq)
 
 data Card = Card {
               name :: String,
               cost :: Int,
               cardType :: [CardType],
               effects :: [CardEffect]
-} deriving Show
+} deriving (Show, Eq)
 
 -- Treasure cards
 copper = Card "Copper" 0 [Treasure] [CoinValue 1]

@@ -10,8 +10,10 @@ import Control.Concurrent
 import Control.Lens
 import Control.Monad.IO.Class
 import Text.Printf
+import Data.List
 
 for = flip map
+forM_ = flip mapM_
 
 type PlayerId = Int
 
@@ -76,31 +78,35 @@ coinValue card = firstJust $ map effect (C.effects card)
 purchases :: PlayerId -> C.Card -> StateT GameState IO ()
 purchases playerId card = do
     player <- getPlayer playerId
+    state <- get
     let newPlayer = over P.discard (card:) player
+        newCards  = delete card (state ^. cards)
+        newState  = set cards newCards state
+    put newState
     savePlayer newPlayer playerId
     liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
     return ()
 
-discardHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
-discardHand playerId hand = do
+discardsHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
+discardsHand playerId hand = do
     player <- getPlayer playerId
     let newPlayer = over P.discard (++hand) player
     savePlayer newPlayer playerId
     return ()
 
-playPlayer :: PlayerId -> StateT GameState IO ()
-playPlayer playerId = do
+bigMoney playerId hand
+    | (handValue hand) >= 6 = playerId `purchases` C.gold
+    | (handValue hand) >= 3 = playerId `purchases` C.silver
+    | otherwise  = playerId `purchases` C.copper
+
+-- plays :: PlayerId -> StateT GameState IO ()
+plays playerId strategy = do
     hand <- drawFromDeck playerId
     liftIO $ print (map C.name hand)
-    purchaseCard (handValue hand)
-    discardHand playerId hand
-  where
-    purchaseCard money
-      | money >= 6 = playerId `purchases` C.gold
-      | money >= 3 = playerId `purchases` C.silver
-      | otherwise  = playerId `purchases` C.copper
+    strategy playerId hand
+    playerId `discardsHand` hand
 
 game :: StateT GameState IO ()
 game = do
          state <- get
-         mapM_ (playPlayer . snd) (zip (state ^. players) [0..])
+         forM_ (zip (state ^. players) [0..]) $ \(_, p_id) -> p_id `plays` bigMoney
