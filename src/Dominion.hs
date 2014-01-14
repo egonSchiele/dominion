@@ -11,6 +11,9 @@ import Control.Lens
 import Control.Monad.IO.Class
 import Text.Printf
 import Data.List
+import Data.Random.Extras
+import Data.Random hiding (shuffle)
+import System.Random
 
 for = flip map
 forM_ = flip mapM_
@@ -36,6 +39,12 @@ savePlayer player playerId = do
     let newState = set (players . element playerId) player $ state
     put newState
 
+myShuffle deck = do
+    gen <- getStdGen
+    let (shuffled, newGen) = sampleState (shuffle deck) gen
+    setStdGen newGen
+    return shuffled
+
 drawFromDeck :: PlayerId -> StateT GameState IO [C.Card]
 drawFromDeck playerId = do
     player <- getPlayer playerId
@@ -47,8 +56,9 @@ drawFromDeck playerId = do
   where shuffleDeck = do
           player <- getPlayer playerId
           let discard = player ^. P.discard
-              -- TODO not sure of this syntax
-              newPlayer = set P.discard [] $ over P.deck (++ discard) player
+              deck    = player ^. P.deck
+          newDeck <- liftIO $ myShuffle (deck ++ discard)
+          let newPlayer = set P.discard [] $ set P.deck newDeck player
           savePlayer newPlayer playerId
 
         drawFromFull = do
@@ -95,7 +105,9 @@ discardsHand playerId hand = do
     return ()
 
 bigMoney playerId hand
+    | (handValue hand) >= 8 = playerId `purchases` C.province
     | (handValue hand) >= 6 = playerId `purchases` C.gold
+    | (handValue hand) >= 5 = playerId `purchases` C.duchy
     | (handValue hand) >= 3 = playerId `purchases` C.silver
     | otherwise  = playerId `purchases` C.copper
 
