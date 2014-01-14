@@ -18,6 +18,13 @@ import System.Random
 for = flip map
 forM_ = flip mapM_
 
+myShuffle :: [C.Card] -> IO [C.Card]
+myShuffle deck = do
+    gen <- getStdGen
+    let (shuffled, newGen) = sampleState (shuffle deck) gen
+    setStdGen newGen
+    return shuffled
+
 type PlayerId = Int
 
 data GameState = GameState {
@@ -27,11 +34,13 @@ data GameState = GameState {
 
 makeLenses ''GameState
 
+-- get player from game state
 getPlayer :: PlayerId -> StateT GameState IO P.Player
 getPlayer playerId = do
     state <- get
     return $ (state ^. players) !! playerId
 
+-- save player at player id to game state
 savePlayer :: P.Player -> PlayerId -> StateT GameState IO ()
 savePlayer player playerId = do
     state <- get
@@ -39,12 +48,7 @@ savePlayer player playerId = do
     let newState = set (players . element playerId) player $ state
     put newState
 
-myShuffle deck = do
-    gen <- getStdGen
-    let (shuffled, newGen) = sampleState (shuffle deck) gen
-    setStdGen newGen
-    return shuffled
-
+-- draw 5 cards from the deck of a player. Returns the drawn cards.
 drawFromDeck :: PlayerId -> StateT GameState IO [C.Card]
 drawFromDeck playerId = do
     player <- getPlayer playerId
@@ -69,8 +73,6 @@ drawFromDeck playerId = do
           savePlayer newPlayer playerId
           return draw
 
--- drawFromDeck player = take 5 (P._deck player)
-
 -- number of treasures this hand has
 handValue :: [C.Card] -> Int
 handValue hand = sum . catMaybes $ map coinValue hand
@@ -85,6 +87,7 @@ coinValue card = firstJust $ map effect (C.effects card)
           where effect (C.CoinValue num) = Just num
                 effect _ = Nothing
 
+-- player purchases a card
 purchases :: PlayerId -> C.Card -> StateT GameState IO ()
 purchases playerId card = do
     player <- getPlayer playerId
@@ -104,6 +107,7 @@ discardsHand playerId hand = do
     savePlayer newPlayer playerId
     return ()
 
+-- the big money strategy
 bigMoney playerId hand
     | (handValue hand) >= 8 = playerId `purchases` C.province
     | (handValue hand) >= 6 = playerId `purchases` C.gold
@@ -111,7 +115,7 @@ bigMoney playerId hand
     | (handValue hand) >= 3 = playerId `purchases` C.silver
     | otherwise  = playerId `purchases` C.copper
 
--- plays :: PlayerId -> StateT GameState IO ()
+-- player plays given strategy
 plays playerId strategy = do
     hand <- drawFromDeck playerId
     liftIO $ print (map C.name hand)
