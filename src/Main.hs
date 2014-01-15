@@ -43,12 +43,9 @@ countPoints player = sum $ map countValue effects
           countValue (C.VPValue x) = x
           countValue _ = 0
 
-
 run :: D.GameState -> IO ()
 run state = do
               let [p1, p2] = state ^. D.players
-              -- print (map C.name $ p1 ^. P.deck)
-              -- print (map C.name $ p2 ^. P.deck)
               (_, newState) <- runStateT D.game state
               let cards = newState ^. D.cards
               if gameOver cards

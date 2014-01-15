@@ -75,17 +75,12 @@ drawFromDeck playerId = do
 
 -- number of treasures this hand has
 handValue :: [C.Card] -> Int
-handValue hand = sum . catMaybes $ map coinValue hand
+handValue hand = sum $ map coinValue hand
 
-firstJust :: [Maybe a] -> Maybe a
-firstJust [] = Nothing
-firstJust (Just x:xs) = Just x
-firstJust (Nothing:xs) = firstJust xs
-
-coinValue :: C.Card -> Maybe Int
-coinValue card = firstJust $ map effect (C.effects card)
-          where effect (C.CoinValue num) = Just num
-                effect _ = Nothing
+coinValue :: C.Card -> Int
+coinValue card = sum $ map effect (C.effects card)
+          where effect (C.CoinValue num) = num
+                effect _ = 0
 
 -- player purchases a card
 purchases :: PlayerId -> C.Card -> StateT GameState IO ()
