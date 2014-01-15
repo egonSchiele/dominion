@@ -92,7 +92,7 @@ purchases playerId card = do
         newState  = set cards newCards state
     put newState
     savePlayer newPlayer playerId
-    liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
+    -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
     return ()
 
 discardsHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
@@ -113,7 +113,6 @@ bigMoney playerId hand
 -- player plays given strategy
 plays playerId strategy = do
     hand <- drawFromDeck playerId
-    liftIO $ print (map C.name hand)
     strategy playerId hand
     playerId `discardsHand` hand
 
