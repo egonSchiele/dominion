@@ -66,7 +66,7 @@ run state = do
                   run newState
 
 main = do
-    results <- forM [1..5000] $ \i -> if even i
+    results <- forM [1..500] $ \i -> if even i
                                         then do
                                           run $ D.GameState players cards
                                         else do

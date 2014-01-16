@@ -20,7 +20,6 @@ import Control.Monad
 import qualified Debug.Trace as D
 
 for = flip map
--- forM_ = flip mapM_
 
 myShuffle :: [C.Card] -> IO [C.Card]
 myShuffle deck = do
@@ -85,9 +84,9 @@ coinValue card = sum $ map effect (card ^. C.effects)
           where effect (C.CoinValue num) = num
                 effect _ = 0
 
--- player purchases a card
-purchases :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-purchases playerId card = do
+-- validate that this player is able to purchase this card
+validatePurchase :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+validatePurchase playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
@@ -97,23 +96,68 @@ purchases playerId card = do
              then return . Left $ printf "We've run out of that card (%s)" (card ^. C.name)
              else if (player ^. P.buys) < 1
                     then return . Left $ "You don't have any buys remaining!"
-                    else do
-                       modifyPlayer playerId $ over P.discard (card:)
-                       modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-                       -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
-                       return $ Right ()
+                    else return $ Right ()
+
+-- player purchases a card
+purchases :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+purchases playerId card = do
+    state <- get
+    validation <- validatePurchase playerId card
+    case validation of
+      Left x -> return $ Left x
+      Right _ -> do
+                   modifyPlayer playerId $ over P.discard (card:)
+                   modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
+                   -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
+                   return $ Right ()
+
+eitherToBool :: (Either String ()) -> StateT GameState IO Bool
+eitherToBool (Left _) = return False
+eitherToBool (Right _) = return True
+
+-- Give an array of cards, in order of preference of purchase.
+-- We'll try to purchase as many cards as possible, in order of preference.
+purchasesByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
+purchasesByPreference playerId cards = do
+    player <- getPlayer playerId
+    forM_ [1..(player ^. P.buys)] $ \_ -> do
+      purchasableCards <- filterM (\card -> validatePurchase playerId card >>= eitherToBool) cards
+      when (not (null purchasableCards)) $ do
+        playerId `purchases` (head purchasableCards)
+        return ()
+
+-- Give an array of cards, in order of preference of play.
+-- We'll try to play as many cards as possible, in order of preference.
+playsByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
+playsByPreference playerId cards = do
+    player <- getPlayer playerId
+    forM_ [1..(player ^. P.actions)] $ \_ -> do
+      playableCards <- filterM (\card -> validatePlay playerId card >>= eitherToBool) cards
+      when (not (null playableCards)) $ do
+        playerId `plays` (head playableCards)
+        return ()
 
 log str x = x
 
--- player plays an action card
-plays :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-plays playerId card = do
+-- check if a player can play a card
+validatePlay :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+validatePlay playerId card = do
     player <- getPlayer playerId
     if not (C.Action `elem` (card ^. C.cardType))
       then return . Left $ printf "%s is not an action card" (card ^. C.name)
       else if (player ^. P.actions) < 1
              then return . Left $ "You don't have any actions remaining!"
-             else do
+             else if not (card `elem` (player ^. P.hand))
+                    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
+                    else return $ Right ()
+
+-- player plays an action card
+plays :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+plays playerId card = do
+    validation <- validatePlay playerId card
+    case validation of
+      Left x -> return $ Left x
+      Right _ -> do
                -- liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
                mapM_ useEffect (card ^. C.effects)
                return $ Right ()
@@ -125,18 +169,6 @@ plays playerId card = do
 discardHand :: PlayerId -> StateT GameState IO ()
 discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
 
--- the big money strategy
-bigMoney playerId = do
-    money <- handValue playerId
-    bigMoney_ playerId money
-
-bigMoney_ playerId money
-    | money >= 8 = playerId `purchases` C.province
-    | money >= 6 = playerId `purchases` C.gold
-    | money >= 5 = playerId `purchases` C.duchy
-    | money >= 3 = playerId `purchases` C.silver
-    | otherwise  = playerId `purchases` C.copper
-
 count :: Eq a => a -> [a] -> Int
 count x list = length $ filter (==x) list
 
@@ -144,20 +176,13 @@ count x list = length $ filter (==x) list
 has :: P.Player -> C.Card -> Bool
 has player card = card `elem` (player ^. P.hand)
 
+-- the big money strategy
+bigMoney playerId = playerId `purchasesByPreference` [C.province, C.gold, C.duchy, C.silver, C.copper]
+
+-- big money but also buy a smithy whenever you can
 bigMoneySmithy playerId = do
-    player <- getPlayer playerId
-    when (player `has` C.smithy) $ playerId `plays` C.smithy >> return ()
-    money <- handValue playerId
-    bigMoneySmithy_ playerId money player
-
-bigMoneySmithy_ playerId money player
-    | money >= 8 = playerId `purchases` C.province
-    | money >= 6 = playerId `purchases` C.gold
-    | money >= 5 = playerId `purchases` C.duchy
-    | money >= 4 && (count C.smithy (P.allCards player) < 2) = playerId `purchases` C.smithy
-    | money >= 3 = playerId `purchases` C.silver
-    | otherwise  = playerId `purchases` C.copper
-
+    playerId `plays` C.smithy
+    playerId `purchasesByPreference` [C.province, C.gold, C.duchy, C.smithy, C.silver, C.copper]
 
 -- player plays given strategy
 playTurn playerId strategy = do
