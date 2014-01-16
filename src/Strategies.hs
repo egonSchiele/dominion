@@ -10,3 +10,7 @@ bigMoney playerId = playerId `D.buysByPreference` [C.province, C.gold, C.duchy, 
 bigMoneySmithy playerId = do
     playerId `D.plays` C.smithy
     playerId `D.buysByPreference` [C.province, C.gold, C.duchy, C.smithy, C.silver, C.copper]
+
+market playerId = do
+    playerId `D.plays` C.market
+    playerId `D.buysByPreference` [C.province, C.gold, C.market, C.duchy, C.silver, C.copper]
