@@ -2,6 +2,7 @@ module Strategies where
 import qualified Dominion as D
 import qualified Card as C
 import qualified Player as P
+import Control.Monad
 
 -- the big money strategy
 bigMoney playerId = playerId `D.buysByPreference` [C.province, C.gold, C.duchy, C.silver, C.copper]
@@ -33,4 +34,8 @@ councilRoom playerId = do
 
 throneRoom playerId = do
     playerId `D.plays` C.throneRoom `D.with` (D.ThroneRoom C.market)
+    playerId `D.buysByPreference` [C.province, C.gold, C.market, C.duchy, C.throneRoom, C.silver, C.copper]
+
+multiThroneRoom playerId = do
+    playerId `D.plays` C.throneRoom `D.with` (D.ThroneRoom C.throneRoom) `D.withMulti` [D.ThroneRoom C.market, D.ThroneRoom C.market]
     playerId `D.buysByPreference` [C.province, C.gold, C.market, C.duchy, C.throneRoom, C.silver, C.copper]

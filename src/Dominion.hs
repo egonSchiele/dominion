@@ -20,6 +20,8 @@ import Control.Monad
 import qualified Debug.Trace as D
 import Utils
 import GameState
+import Data.Either
+import Control.Applicative
 
 data ExtraEffect = ThroneRoom C.Card
 
@@ -218,6 +220,19 @@ with :: StateT GameState IO (Either String (Maybe (PlayerId, C.CardEffect))) -> 
 info `with` extraEffect = do
     result <- info
     result `_with` extraEffect
+
+-- just like `with`, except you can give it an array of info, and an
+-- array of the extra effects you want to use with each info
+withMulti :: StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)])) -> [ExtraEffect] -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+info `withMulti` extraEffects = do
+    results_ <- info
+    case results_ of
+      Right (Just results) -> do
+          allResults <- forM (zip results extraEffects) $ \(result, extraEffect) -> (Right (Just result)) `_with` extraEffect
+          return $ Right (Just (concat . catMaybes . rights $ allResults))
+      Left str -> return $ Left str
+      _ -> return $ Right Nothing
+
 
 -- private method, use if you don't want to pass in a state monad into
 -- `with`. This is what `with` uses behind the scenes.

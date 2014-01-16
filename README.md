@@ -6,7 +6,7 @@ Usage:
 
     ./dominion [# of iterations -- default 500]
 
-# Strategies
+## Strategies
 
 Here's a simple strategy, the "big money" strategy:
 
@@ -48,3 +48,30 @@ Just as a control, lets use the same strategy with both players:
     player maggie won 2556 times
 
 So clearly, adding the smithy to big money makes a big difference!
+
+### Extra effects
+
+Some action cards have an extra effect. For example, if you use throne room, you can pick another card and play it twice. Here's how that looks:
+
+```haskell
+throneRoom playerId = do
+    playerId `plays` throneRoom `with` (ThroneRoom market)
+```
+
+And of course you can play throne room on throne room:
+
+```haskell
+multiThroneRoom playerId = do
+    playerId `plays` throneRoom `with` (ThroneRoom throneRoom) `withMulti` [ThroneRoom market, ThroneRoom market]
+```
+
+`withMulti` is the same as with, except you specify an array of extra effects you want to do. In this case, we play a throne room on a throne room, so now we can pick an action card to play twice, twice. We choose to play a market both times (assuming we have two markets in our hand).
+
+You can also make sure the player has a market first:
+
+```haskell
+throneRoom playerId = do
+    player <- getPlayer playerId
+    when player `has` market $ do
+      playerId `plays` throneRoom `with` (ThroneRoom market)
+```
