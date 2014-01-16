@@ -56,8 +56,8 @@ run state = do
               if gameOver cards
                 then do
                   let results = map (id &&& countPoints) (newState ^. D.players) :: [(P.Player, Int)]
-                  -- putStrLn "Game over!"
-                  -- forM_ results $ \(player, points) -> putStrLn $ printf "player %d got %d points" player points
+                  putStrLn "Game over!"
+                  forM_ results $ \(player, points) -> putStrLn $ printf "player %s got %d points" (player ^. P.name) points
                   return $ P._name . fst $ foldl1 (\(saved_player, max_points) (player, points) -> if points > max_points
                                                                            then (player, points)
                                                                            else (saved_player, max_points)) results
@@ -66,7 +66,7 @@ run state = do
                   run newState
 
 main = do
-    results <- forM [1..5000] $ \i -> if even i
+    results <- forM [1..5] $ \i -> if even i
                                         then do
                                           run $ D.GameState players cards
                                         else do

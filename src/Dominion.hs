@@ -14,6 +14,7 @@ import Data.List
 import Data.Random.Extras
 import Data.Random hiding (shuffle)
 import System.Random
+import System.IO.Unsafe
 
 for = flip map
 forM_ = flip mapM_
@@ -40,38 +41,36 @@ getPlayer playerId = do
     state <- get
     return $ (state ^. players) !! playerId
 
--- save player at player id to game state
-savePlayer :: P.Player -> PlayerId -> StateT GameState IO ()
-savePlayer player playerId = do
-    state <- get
-    -- WOO lenses!
-    let newState = set (players . element playerId) player $ state
-    put newState
+-- takes a player id and a function.
+-- That function takes a player and returns a modified player.
+modifyPlayer :: PlayerId -> (P.Player -> P.Player) -> StateT GameState IO ()
+modifyPlayer playerId func = modify $ \state -> over (players . element playerId) func $ state
 
+
+shuffleDeck playerId = modifyPlayer playerId shuffleDeck_
+
+shuffleDeck_ player = set P.discard [] $ set P.deck newDeck player
+          where discard = player ^. P.discard
+                deck    = player ^. P.deck
+                newDeck = unsafePerformIO $ myShuffle (deck ++ discard)
+
+-- only gets called when we know that the player has at least 5 cards in
+-- his/her deck
+drawFromFull playerId = do
+  player <- getPlayer playerId
+  let deck = player ^. P.deck
+      draw = take 5 deck
+  modifyPlayer playerId $ over P.deck (drop 5)
+  return draw
+ 
 -- draw 5 cards from the deck of a player. Returns the drawn cards.
 drawFromDeck :: PlayerId -> StateT GameState IO [C.Card]
 drawFromDeck playerId = do
     player <- getPlayer playerId
     let deck = player ^. P.deck
     if (length deck) >= 5
-      then drawFromFull
-      else shuffleDeck >> drawFromFull
-
-  where shuffleDeck = do
-          player <- getPlayer playerId
-          let discard = player ^. P.discard
-              deck    = player ^. P.deck
-          newDeck <- liftIO $ myShuffle (deck ++ discard)
-          let newPlayer = set P.discard [] $ set P.deck newDeck player
-          savePlayer newPlayer playerId
-
-        drawFromFull = do
-          player <- getPlayer playerId
-          let deck = player ^. P.deck
-              draw = take 5 deck
-              newPlayer = over P.deck (drop 5) player
-          savePlayer newPlayer playerId
-          return draw
+      then drawFromFull playerId
+      else shuffleDeck playerId >> drawFromFull playerId
 
 -- number of treasures this hand has
 handValue :: [C.Card] -> Int
@@ -85,22 +84,12 @@ coinValue card = sum $ map effect (C.effects card)
 -- player purchases a card
 purchases :: PlayerId -> C.Card -> StateT GameState IO ()
 purchases playerId card = do
-    player <- getPlayer playerId
-    state <- get
-    let newPlayer = over P.discard (card:) player
-        newCards  = delete card (state ^. cards)
-        newState  = set cards newCards state
-    put newState
-    savePlayer newPlayer playerId
-    -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
-    return ()
+    modifyPlayer playerId $ over P.discard (card:)
+    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
+    liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
 
 discardsHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
-discardsHand playerId hand = do
-    player <- getPlayer playerId
-    let newPlayer = over P.discard (++hand) player
-    savePlayer newPlayer playerId
-    return ()
+discardsHand playerId hand = modifyPlayer playerId $ over P.discard (++hand)
 
 -- the big money strategy
 bigMoney playerId hand
