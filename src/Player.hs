@@ -14,3 +14,6 @@ data Player = Player {
 } deriving Show
 
 makeLenses ''Player
+
+allCards :: Player -> [C.Card]
+allCards player = player ^. deck ++ player ^. hand ++ player ^. discard

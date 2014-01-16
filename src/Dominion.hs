@@ -7,7 +7,7 @@ import Control.Monad
 import Data.Maybe
 import Control.Monad.State hiding (state)
 import Control.Concurrent
-import Control.Lens
+import Control.Lens hiding (has)
 import Control.Monad.IO.Class
 import Text.Printf
 import Data.List
@@ -15,9 +15,10 @@ import Data.Random.Extras
 import Data.Random hiding (shuffle)
 import System.Random
 import System.IO.Unsafe
+import Control.Monad
 
 for = flip map
-forM_ = flip mapM_
+-- forM_ = flip mapM_
 
 myShuffle :: [C.Card] -> IO [C.Card]
 myShuffle deck = do
@@ -109,6 +110,7 @@ plays playerId card = do
       else if (player ^. P.actions) < 1
              then return . Left $ "You don't have any actions remaining!"
              else do
+               liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
                mapM_ useEffect (card ^. C.effects)
                return $ Right ()
     where useEffect (C.PlusAction x) = modifyPlayer playerId $ over P.actions (+x)
@@ -131,6 +133,28 @@ bigMoney_ playerId money
     | money >= 3 = playerId `purchases` C.silver
     | otherwise  = playerId `purchases` C.copper
 
+count :: Eq a => a -> [a] -> Int
+count x list = length $ filter (==x) list
+
+-- see if a player has a card in his hand
+has :: P.Player -> C.Card -> Bool
+has player card = card `elem` (player ^. P.hand)
+
+bigMoneySmithy playerId = do
+    player <- getPlayer playerId
+    when (player `has` C.smithy) $ playerId `plays` C.smithy >> return ()
+    money <- handValue playerId
+    bigMoneySmithy_ playerId money player
+
+bigMoneySmithy_ playerId money player
+    | money >= 8 = playerId `purchases` C.province
+    | money >= 6 = playerId `purchases` C.gold
+    | money >= 5 = playerId `purchases` C.duchy
+    | money >= 4 && (count C.smithy (P.allCards player) < 2) = playerId `purchases` C.smithy
+    | money >= 3 = playerId `purchases` C.silver
+    | otherwise  = playerId `purchases` C.copper
+
+
 -- player plays given strategy
 playTurn playerId strategy = do
     drawFromDeck playerId 5
@@ -141,4 +165,6 @@ playTurn playerId strategy = do
 game :: StateT GameState IO ()
 game = do
          state <- get
-         forM_ (zip (state ^. players) [0..]) $ \(_, p_id) -> playTurn p_id bigMoney
+         forM_ (zip (state ^. players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "maggie")
+                                                                then playTurn p_id bigMoney
+                                                                else playTurn p_id bigMoneySmithy
