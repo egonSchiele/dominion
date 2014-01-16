@@ -30,3 +30,10 @@ festival playerId = do
 councilRoom playerId = do
     playerId `D.playsByPreference` [C.councilRoom]
     playerId `D.buysByPreference` [C.province, C.gold, C.councilRoom, C.duchy, C.silver, C.copper]
+
+throneRoom playerId = do
+    result <- (playerId `D.plays` C.throneRoom)
+    case result of
+      Left str -> return $ Left str
+      Right result_ -> result_ `D.with` (D.ThroneRoom C.market)
+    playerId `D.buysByPreference` [C.province, C.gold, C.market, C.duchy, C.throneRoom, C.silver, C.copper]

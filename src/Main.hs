@@ -11,9 +11,10 @@ import System.Environment
 import Control.Monad
 import Utils
 import qualified Strategies as S
+import qualified GameState as G
 
 makePlayer :: String -> P.Player
-makePlayer name = P.Player name [] (7 `cardsOf` C.copper ++ 3 `cardsOf` C.estate) [] 1 1 0
+makePlayer name = P.Player name [] (2 `cardsOf` C.throneRoom ++ 2 `cardsOf` C.market ++ 3 `cardsOf` C.copper ++ 3 `cardsOf` C.estate) [] 1 1 0
 
 cardsOf count card = take count $ repeat card
 pileOf card = 10 `cardsOf` card
@@ -47,21 +48,21 @@ countPoints player = sum $ map countValue effects
           countValue (C.VPValue x) = x
           countValue _ = 0
 
-game :: StateT D.GameState IO ()
+game :: StateT G.GameState IO ()
 game = do
          state <- get
-         forM_ (zip (state ^. D.players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "adit")
-                                                                then D.playTurn p_id S.villageIdiot
+         forM_ (zip (state ^. G.players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "adit")
+                                                                then D.playTurn p_id S.throneRoom
                                                                 else D.playTurn p_id S.bigMoneySmithy
 
-run :: D.GameState -> IO String
+run :: G.GameState -> IO String
 run state = do
-              let [p1, p2] = state ^. D.players
+              let [p1, p2] = state ^. G.players
               (_, newState) <- runStateT game state
-              let cards = newState ^. D.cards
+              let cards = newState ^. G.cards
               if gameOver cards
                 then do
-                  let results = map (id &&& countPoints) (newState ^. D.players) :: [(P.Player, Int)]
+                  let results = map (id &&& countPoints) (newState ^. G.players) :: [(P.Player, Int)]
                   -- putStrLn "Game over!"
                   -- forM_ results $ \(player, points) -> putStrLn $ printf "player %s got %d points" (player ^. P.name) points
                   return $ P._name . fst $ foldl1 (\(saved_player, max_points) (player, points) -> if points > max_points
@@ -75,10 +76,10 @@ main = do
     args <- getArgs
     let iterations = case args of
                        [iterations_] -> read iterations_ :: Int
-                       _ -> 5000
+                       _ -> 1
     results <- forM [1..iterations] $ \i -> if even i
                                         then do
-                                          run $ D.GameState players cards
+                                          run $ G.GameState players cards
                                         else do
-                                          run $ D.GameState (reverse players) cards
+                                          run $ G.GameState (reverse players) cards
     forM_ players $ \player -> putStrLn $ printf "player %s won %d times" (player ^. P.name) (count (player ^. P.name) results)

@@ -1,10 +1,31 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Card where
 import Control.Lens
+import Control.Monad.State
 
-data CardType = Action | Attack | Reaction | Treasure | Victory | Duration deriving (Show, Eq)
+type PlayerId = Int
 
-data CardEffect = CoinValue Int | VPValue Int | PlusDraw Int | PlusCoin Int | PlusBuy Int | PlusAction Int | Trash Int | DurationDraw Int | DurationAction Int | DurationCoin Int | DurationBuy Int deriving (Show, Eq)
+data CardType = Action
+              | Attack
+              | Reaction
+              | Treasure
+              | Victory
+              | Duration
+              deriving (Show, Eq)
+
+data CardEffect = CoinValue Int
+                | VPValue Int
+                | PlusDraw Int
+                | PlusCoin Int
+                | PlusBuy Int
+                | PlusAction Int
+                | Trash Int
+                | DurationDraw Int
+                | DurationAction Int
+                | DurationCoin Int
+                | DurationBuy Int
+                | PlayActionCard Int
+                deriving (Show, Eq)
 
 data Card = Card {
               _name :: String,
@@ -34,3 +55,4 @@ festival = Card "Festival" 5 [Action] [PlusAction 2, PlusCoin 2, PlusBuy 1]
 market = Card "Market" 5 [Action] [PlusAction 1, PlusCoin 1, PlusDraw 1, PlusBuy 1]
 woodcutter = Card "Woodcutter" 3 [Action] [PlusCoin 2, PlusBuy 1]
 councilRoom = Card "Council Room" 5 [Action] [PlusDraw 4, PlusBuy 1]
+throneRoom = Card "Throne Room" 4 [Action] [PlayActionCard 2]

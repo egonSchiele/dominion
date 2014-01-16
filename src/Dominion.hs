@@ -19,6 +19,10 @@ import System.IO.Unsafe
 import Control.Monad
 import qualified Debug.Trace as D
 import Utils
+import GameState
+
+data ExtraEffect = ThroneRoom C.Card
+
 
 eitherToBool :: (Either String ()) -> StateT GameState IO Bool
 eitherToBool (Left _) = return False
@@ -37,13 +41,6 @@ myShuffle deck = do
     return shuffled
 
 type PlayerId = Int
-
-data GameState = GameState {
-                    _players :: [P.Player],
-                    _cards :: [C.Card]
-} deriving Show
-
-makeLenses ''GameState
 
 -- get player from game state
 getPlayer :: PlayerId -> StateT GameState IO P.Player
@@ -114,9 +111,11 @@ buys playerId card = do
     case validation of
       Left x -> return $ Left x
       Right _ -> do
+                   money <- handValue playerId
+                   log $ printf "player %d has %d money" playerId money
                    modifyPlayer playerId $ \player -> over P.discard (card:) $ over P.buys (subtract 1) $ over P.extraMoney (subtract $ card ^. C.cost) player
                    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-                   -- liftIO $ putStrLn $ printf "player %d bought a %s" playerId (card ^. C.name)
+                   log $ printf "player %d bought a %s" playerId (card ^. C.name)
                    return $ Right ()
 
 -- Give an array of cards, in order of preference of buy.
@@ -141,7 +140,8 @@ playsByPreference playerId cards = do
         playerId `plays` (head playableCards)
         playerId `playsByPreference` cards
 
-log str x = x
+log :: String -> StateT GameState IO ()
+log str = liftIO $ putStrLn str
 
 -- check if a player can play a card
 validatePlay :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
@@ -155,21 +155,83 @@ validatePlay playerId card = do
                     then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
                     else return $ Right ()
 
--- player plays an action card
-plays :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+-- player plays an action card. We return an Either.
+-- On error, we'll return an error message.
+-- On success, we will return either:
+--  Nothing, if there are no followup actions to be taken.
+--  (playerId, card effect), if that effect has a folow-up
+--  action that needs to be taken, such as when throne room
+--  is played...you need to then select an action card to
+--  play twice.
+--
+--  You can use the followup with `with`.
+plays :: PlayerId -> C.Card -> StateT GameState IO (Either String (Maybe (PlayerId, C.CardEffect)))
 plays playerId card = do
     validation <- validatePlay playerId card
     case validation of
       Left x -> return $ Left x
       Right _ -> do
-               -- liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
-               mapM_ useEffect (card ^. C.effects)
+               log $ printf "player %d plays a %s!" playerId (card ^. C.name)
+               results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
                modifyPlayer playerId $ \player -> over P.hand (delete card) $ over P.discard (card:) $ over P.actions (subtract 1) $ player
-               return $ Right ()
-    where useEffect (C.PlusAction x) = log ("+ " ++ (show x) ++ " actions") modifyPlayer playerId $ over P.actions (+x)
-          useEffect (C.PlusCoin x)   = log ("+ " ++ (show x) ++ " coin") modifyPlayer playerId $ over P.extraMoney (+x)
-          useEffect (C.PlusBuy x)    = log ("+ " ++ (show x) ++ " buys") modifyPlayer playerId $ over P.buys (+x)
-          useEffect (C.PlusDraw x)   = log ("+ " ++ (show x) ++ " cards") drawFromDeck playerId x
+               -- we should get at most *one* effect to return
+               return $ Right $ case (catMaybes results) of
+                          [] -> Nothing
+                          [result] -> Just result
+
+
+-- used internally by the `plays` function.
+-- Returns Nothing if the effect doesnt need anything else,
+-- or returns (playerId, the effect) if its got a second
+-- part (like with throne room or chapel).
+usesEffect :: PlayerId -> C.CardEffect -> StateT GameState IO (Maybe (PlayerId, C.CardEffect))
+playerId `usesEffect` (C.PlusAction x) = do
+    log ("+ " ++ (show x) ++ " actions")
+    modifyPlayer playerId $ over P.actions (+x)
+    return Nothing
+
+playerId `usesEffect` (C.PlusCoin x) = do
+    log ("+ " ++ (show x) ++ " coin")
+    modifyPlayer playerId $ over P.extraMoney (+x)
+    return Nothing
+
+playerId `usesEffect` (C.PlusBuy x) = do
+    log ("+ " ++ (show x) ++ " buys")
+    modifyPlayer playerId $ over P.buys (+x)
+    return Nothing
+
+playerId `usesEffect` (C.PlusDraw x) = do
+    log ("+ " ++ (show x) ++ " cards")
+    drawFromDeck playerId x
+    return Nothing
+
+playerId `usesEffect` effect@(C.PlayActionCard x) = do
+    log ("choose an action card and play it " ++ (show x) ++ " times")
+    return $ Just (playerId, effect)
+
+-- `with` might lead to more extra effects. And specifically, lets say you
+-- play throne room on throne room. Now you have TWO extra effects, i.e.
+-- you can choose a card to play twice TWICE.
+--
+-- Thats why `with` might return an array of extra effects, not just one.
+with :: Maybe (PlayerId, C.CardEffect) -> ExtraEffect -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+Nothing `with` _ = return $ Right Nothing
+
+(Just (playerId, C.PlayActionCard x)) `with` (ThroneRoom card) = do
+  player <- getPlayer playerId
+  if not (card `elem` (player ^. P.hand))
+    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
+    else do
+      log $ printf "playing %s twice!" (card ^. C.name)
+      results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
+      results2 <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
+      modifyPlayer playerId $ \player -> over P.hand (delete card) $ over P.discard (card:) player
+      let finalResults = catMaybes (results ++ results2)
+      return $ Right $ case finalResults of
+                 [] -> Nothing
+                 x -> Just x
+
+_ `with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
 
 discardHand :: PlayerId -> StateT GameState IO ()
 discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
@@ -182,5 +244,7 @@ has player card = card `elem` (player ^. P.hand)
 playTurn playerId strategy = do
     drawFromDeck playerId 5
     modifyPlayer playerId $ \player -> set P.actions 1 $ set P.buys 1 $ set P.extraMoney 0 player
+    player <- getPlayer playerId
+    log $ "player's hand has: " ++ (show . map C._name $ player ^. P.hand)
     strategy playerId
     discardHand playerId
