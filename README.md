@@ -15,8 +15,7 @@ bigMoney playerId = playerId `buysByPreference` [C.province,
                                                  C.gold,
                                                  C.duchy,
                                                  C.silver,
-                                                 C.copper
-                                                ]
+                                                 C.copper]
 ```
 
 The big money strategy is simple: buy the most expensive victory or treasure card you can, and repeat.
@@ -27,14 +26,13 @@ Here's another example: big money + smithy:
 
 ```haskell
 bigMoneySmithy playerId = do
-    playerId `D.plays` C.smithy
-    playerId `D.buysByPreference` [C.province,
-                                   C.gold,
-                                   C.duchy,
-                                   C.smithy,
-                                   C.silver,
-                                   C.copper
-                                  ]
+    playerId `plays` C.smithy
+    playerId `buysByPreference` [C.province,
+                                 C.gold,
+                                 C.duchy,
+                                 C.smithy,
+                                 C.silver,
+                                 C.copper]
 ```
 
 It's just like big money, except now the player buys up smithys too. And the player plays a smithy whenever possible (`plays` will play the action card if it can). So now we can compare Big Money vs Big Money + Smithy. And the results are:
