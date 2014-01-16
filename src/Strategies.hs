@@ -32,5 +32,5 @@ councilRoom playerId = do
     playerId `D.buysByPreference` [C.province, C.gold, C.councilRoom, C.duchy, C.silver, C.copper]
 
 throneRoom playerId = do
-    (playerId `D.plays` C.throneRoom) >>= (D.with (D.ThroneRoom C.market))
+    playerId `D.plays` C.throneRoom `D.with` (D.ThroneRoom C.market)
     playerId `D.buysByPreference` [C.province, C.gold, C.market, C.duchy, C.throneRoom, C.silver, C.copper]

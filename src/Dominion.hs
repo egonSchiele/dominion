@@ -214,11 +214,18 @@ playerId `usesEffect` effect@(C.PlayActionCard x) = do
 -- you can choose a card to play twice TWICE.
 --
 -- Thats why `with` might return an array of extra effects, not just one.
-with :: ExtraEffect -> Either String (Maybe (PlayerId, C.CardEffect)) -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
-with _ (Left str) = return $ Left str
-with _ (Right Nothing) = return $ Right Nothing
+with :: StateT GameState IO (Either String (Maybe (PlayerId, C.CardEffect))) -> ExtraEffect -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+info `with` extraEffect = do
+    result <- info
+    result `_with` extraEffect
 
-with (ThroneRoom card) (Right (Just (playerId, C.PlayActionCard x))) = do
+-- private method, use if you don't want to pass in a state monad into
+-- `with`. This is what `with` uses behind the scenes.
+_with :: Either String (Maybe (PlayerId, C.CardEffect)) -> ExtraEffect -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+Left str `_with` _ = return $ Left str
+Right Nothing `_with` _ = return $ Right Nothing
+
+Right (Just (playerId, C.PlayActionCard x)) `_with` (ThroneRoom card) = do
   player <- getPlayer playerId
   if not (card `elem` (player ^. P.hand))
     then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
@@ -232,7 +239,7 @@ with (ThroneRoom card) (Right (Just (playerId, C.PlayActionCard x))) = do
                  [] -> Nothing
                  x -> Just x
 
-with _ _ = return $ Left "sorry, you can't play that effect with that extra effect."
+_ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
 
 discardHand :: PlayerId -> StateT GameState IO ()
 discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
