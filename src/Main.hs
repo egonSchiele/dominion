@@ -9,7 +9,7 @@ import Text.Printf
 import Data.List
 
 makePlayer :: String -> P.Player
-makePlayer name = P.Player name [] (7 `cardsOf` C.copper ++ 3 `cardsOf` C.estate)
+makePlayer name = P.Player name [] (7 `cardsOf` C.copper ++ 3 `cardsOf` C.estate) [] 1 1 0
 
 cardsOf count card = take count $ repeat card
 pileOf card = 10 `cardsOf` card

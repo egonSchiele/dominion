@@ -56,15 +56,12 @@ shuffleDeck_ player = set P.discard [] $ set P.deck newDeck player
 
 -- only gets called when we know that the player has at least 5 cards in
 -- his/her deck
-drawFromFull playerId = do
-  player <- getPlayer playerId
-  let deck = player ^. P.deck
-      draw = take 5 deck
-  modifyPlayer playerId $ over P.deck (drop 5)
-  return draw
+drawFromFull playerId = modifyPlayer playerId $ \player -> 
+                            over P.deck (drop 5) $ 
+                              over P.hand (++ (take 5 (player ^. P.deck))) player
  
 -- draw 5 cards from the deck of a player. Returns the drawn cards.
-drawFromDeck :: PlayerId -> StateT GameState IO [C.Card]
+drawFromDeck :: PlayerId -> StateT GameState IO ()
 drawFromDeck playerId = do
     player <- getPlayer playerId
     let deck = player ^. P.deck
@@ -73,8 +70,10 @@ drawFromDeck playerId = do
       else shuffleDeck playerId >> drawFromFull playerId
 
 -- number of treasures this hand has
-handValue :: [C.Card] -> Int
-handValue hand = sum $ map coinValue hand
+handValue :: PlayerId -> StateT GameState IO Int
+handValue playerId = do
+    player <- getPlayer playerId
+    return $ sum (map coinValue (player ^. P.hand)) + (player ^. P.extraMoney)
 
 coinValue :: C.Card -> Int
 coinValue card = sum $ map effect (C.effects card)
@@ -88,24 +87,28 @@ purchases playerId card = do
     modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
     liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
 
-discardsHand :: PlayerId -> [C.Card] -> StateT GameState IO ()
-discardsHand playerId hand = modifyPlayer playerId $ over P.discard (++hand)
+discardHand :: PlayerId -> StateT GameState IO ()
+discardHand playerId = modifyPlayer playerId $ \player -> over P.discard (++ (player ^. P.hand)) player
 
 -- the big money strategy
-bigMoney playerId hand
-    | (handValue hand) >= 8 = playerId `purchases` C.province
-    | (handValue hand) >= 6 = playerId `purchases` C.gold
-    | (handValue hand) >= 5 = playerId `purchases` C.duchy
-    | (handValue hand) >= 3 = playerId `purchases` C.silver
+bigMoney playerId = do
+    money <- handValue playerId
+    bigMoney_ playerId money
+
+bigMoney_ playerId money
+    | money >= 8 = playerId `purchases` C.province
+    | money >= 6 = playerId `purchases` C.gold
+    | money >= 5 = playerId `purchases` C.duchy
+    | money >= 3 = playerId `purchases` C.silver
     | otherwise  = playerId `purchases` C.copper
 
 -- player plays given strategy
-plays playerId strategy = do
-    hand <- drawFromDeck playerId
-    strategy playerId hand
-    playerId `discardsHand` hand
+playTurn playerId strategy = do
+    drawFromDeck playerId
+    strategy playerId
+    discardHand playerId
 
 game :: StateT GameState IO ()
 game = do
          state <- get
-         forM_ (zip (state ^. players) [0..]) $ \(_, p_id) -> p_id `plays` bigMoney
+         forM_ (zip (state ^. players) [0..]) $ \(_, p_id) -> playTurn p_id bigMoney
