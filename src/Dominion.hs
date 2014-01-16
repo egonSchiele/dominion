@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Dominion where
+import Prelude hiding (log)
 import qualified Player as P
 import qualified Card as C
 import Control.Monad
@@ -16,6 +17,7 @@ import Data.Random hiding (shuffle)
 import System.Random
 import System.IO.Unsafe
 import Control.Monad
+import qualified Debug.Trace as D
 
 for = flip map
 -- forM_ = flip mapM_
@@ -98,8 +100,10 @@ purchases playerId card = do
                     else do
                        modifyPlayer playerId $ over P.discard (card:)
                        modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-                       liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
+                       -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
                        return $ Right ()
+
+log str x = x
 
 -- player plays an action card
 plays :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
@@ -110,13 +114,13 @@ plays playerId card = do
       else if (player ^. P.actions) < 1
              then return . Left $ "You don't have any actions remaining!"
              else do
-               liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
+               -- liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
                mapM_ useEffect (card ^. C.effects)
                return $ Right ()
-    where useEffect (C.PlusAction x) = modifyPlayer playerId $ over P.actions (+x)
-          useEffect (C.PlusCoin x)   = modifyPlayer playerId $ over P.extraMoney (+x)
-          useEffect (C.PlusBuy x)    = modifyPlayer playerId $ over P.buys (+x)
-          useEffect (C.PlusDraw x)   = drawFromDeck playerId x
+    where useEffect (C.PlusAction x) = log ("+ " ++ (show x) ++ " actions") modifyPlayer playerId $ over P.actions (+x)
+          useEffect (C.PlusCoin x)   = log ("+ " ++ (show x) ++ " coin") modifyPlayer playerId $ over P.extraMoney (+x)
+          useEffect (C.PlusBuy x)    = log ("+ " ++ (show x) ++ " buys") modifyPlayer playerId $ over P.buys (+x)
+          useEffect (C.PlusDraw x)   = log ("+ " ++ (show x) ++ " cards") drawFromDeck playerId x
 
 discardHand :: PlayerId -> StateT GameState IO ()
 discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
