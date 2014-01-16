@@ -7,6 +7,10 @@ import Control.Lens
 import Control.Arrow
 import Text.Printf
 import Data.List
+import System.Environment
+import Control.Monad
+import Utils
+import qualified Strategies as S
 
 makePlayer :: String -> P.Player
 makePlayer name = P.Player name [] (7 `cardsOf` C.copper ++ 3 `cardsOf` C.estate) [] 1 1 0
@@ -15,8 +19,6 @@ cardsOf count card = take count $ repeat card
 pileOf card = 10 `cardsOf` card
 
 players = [makePlayer "adit", makePlayer "maggie"]
-forM_ = flip mapM_
-forM = flip mapM
 
 cards = concatMap pileOf [ C.copper,
                            C.silver,
@@ -37,9 +39,6 @@ gameOver cards
     | not (C.province `elem` cards) = True
     | otherwise = False
 
-count :: Eq a => a -> [a] -> Int
-count x list = length $ filter (==x) list
-
 countPoints :: P.Player -> Int
 countPoints player = sum $ map countValue effects
     where cards        = player ^. P.deck ++ player ^. P.discard
@@ -48,10 +47,17 @@ countPoints player = sum $ map countValue effects
           countValue (C.VPValue x) = x
           countValue _ = 0
 
+game :: StateT D.GameState IO ()
+game = do
+         state <- get
+         forM_ (zip (state ^. D.players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "maggie")
+                                                                then D.playTurn p_id S.bigMoneySmithy
+                                                                else D.playTurn p_id S.bigMoney
+
 run :: D.GameState -> IO String
 run state = do
               let [p1, p2] = state ^. D.players
-              (_, newState) <- runStateT D.game state
+              (_, newState) <- runStateT game state
               let cards = newState ^. D.cards
               if gameOver cards
                 then do
@@ -66,7 +72,11 @@ run state = do
                   run newState
 
 main = do
-    results <- forM [1..500] $ \i -> if even i
+    args <- getArgs
+    let iterations = case args of
+                       [iterations_] -> read iterations_ :: Int
+                       _ -> 5000
+    results <- forM [1..iterations] $ \i -> if even i
                                         then do
                                           run $ D.GameState players cards
                                         else do

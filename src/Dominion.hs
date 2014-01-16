@@ -18,8 +18,16 @@ import System.Random
 import System.IO.Unsafe
 import Control.Monad
 import qualified Debug.Trace as D
+import Utils
 
-for = flip map
+eitherToBool :: (Either String ()) -> StateT GameState IO Bool
+eitherToBool (Left _) = return False
+eitherToBool (Right _) = return True
+
+coinValue :: C.Card -> Int
+coinValue card = sum $ map effect (card ^. C.effects)
+          where effect (C.CoinValue num) = num
+                effect _ = 0
 
 myShuffle :: [C.Card] -> IO [C.Card]
 myShuffle deck = do
@@ -48,13 +56,14 @@ getPlayer playerId = do
 modifyPlayer :: PlayerId -> (P.Player -> P.Player) -> StateT GameState IO ()
 modifyPlayer playerId func = modify $ \state -> over (players . element playerId) func $ state
 
-
+-- move this players discards + hand into his deck and shuffle the deck
 shuffleDeck playerId = modifyPlayer playerId shuffleDeck_
 
 shuffleDeck_ player = set P.discard [] $ set P.deck newDeck player
           where discard = player ^. P.discard
                 deck    = player ^. P.deck
-                newDeck = unsafePerformIO $ myShuffle (deck ++ discard)
+                hand    = player ^. P.hand
+                newDeck = unsafePerformIO $ myShuffle (deck ++ discard ++ hand)
 
 -- private method that gets called from `drawFromDeck`
 -- only gets called when we know that the player has
@@ -63,6 +72,10 @@ drawFromFull playerId numCards = modifyPlayer playerId $ \player ->
                             over P.deck (drop numCards) $ 
                               over P.hand (++ (take numCards (player ^. P.deck))) player
  
+-- given a player id and a number of cards to draw, draws that many cards
+-- from the deck, shuffling if necessary.
+-- TODO if the deck doesn't have enough cards, we should draw the cards in
+-- the deck before shuffling and drawing the rest.
 drawFromDeck :: PlayerId -> Int -> StateT GameState IO ()
 drawFromDeck playerId numCards = do
     player <- getPlayer playerId
@@ -73,16 +86,11 @@ drawFromDeck playerId numCards = do
         shuffleDeck playerId
         drawFromFull playerId numCards
 
--- number of treasures this hand has
+-- amount of money this player's hand is worth
 handValue :: PlayerId -> StateT GameState IO Int
 handValue playerId = do
     player <- getPlayer playerId
     return $ sum (map coinValue (player ^. P.hand)) + (player ^. P.extraMoney)
-
-coinValue :: C.Card -> Int
-coinValue card = sum $ map effect (card ^. C.effects)
-          where effect (C.CoinValue num) = num
-                effect _ = 0
 
 -- validate that this player is able to purchase this card
 validatePurchase :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
@@ -110,10 +118,6 @@ purchases playerId card = do
                    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
                    -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
                    return $ Right ()
-
-eitherToBool :: (Either String ()) -> StateT GameState IO Bool
-eitherToBool (Left _) = return False
-eitherToBool (Right _) = return True
 
 -- Give an array of cards, in order of preference of purchase.
 -- We'll try to purchase as many cards as possible, in order of preference.
@@ -169,20 +173,9 @@ plays playerId card = do
 discardHand :: PlayerId -> StateT GameState IO ()
 discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
 
-count :: Eq a => a -> [a] -> Int
-count x list = length $ filter (==x) list
-
 -- see if a player has a card in his hand
 has :: P.Player -> C.Card -> Bool
 has player card = card `elem` (player ^. P.hand)
-
--- the big money strategy
-bigMoney playerId = playerId `purchasesByPreference` [C.province, C.gold, C.duchy, C.silver, C.copper]
-
--- big money but also buy a smithy whenever you can
-bigMoneySmithy playerId = do
-    playerId `plays` C.smithy
-    playerId `purchasesByPreference` [C.province, C.gold, C.duchy, C.smithy, C.silver, C.copper]
 
 -- player plays given strategy
 playTurn playerId strategy = do
@@ -190,10 +183,3 @@ playTurn playerId strategy = do
     modifyPlayer playerId $ \player -> set P.actions 1 $ set P.buys 1 $ set P.extraMoney 0 player
     strategy playerId
     discardHand playerId
-
-game :: StateT GameState IO ()
-game = do
-         state <- get
-         forM_ (zip (state ^. players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "maggie")
-                                                                then playTurn p_id bigMoney
-                                                                else playTurn p_id bigMoneySmithy
