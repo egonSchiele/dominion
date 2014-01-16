@@ -50,9 +50,9 @@ countPoints player = sum $ map countValue effects
 game :: StateT D.GameState IO ()
 game = do
          state <- get
-         forM_ (zip (state ^. D.players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "maggie")
-                                                                then D.playTurn p_id S.bigMoneySmithy
-                                                                else D.playTurn p_id S.bigMoney
+         forM_ (zip (state ^. D.players) [0..]) $ \(p, p_id) -> if (p ^. P.name == "adit")
+                                                                then D.playTurn p_id S.villageIdiot
+                                                                else D.playTurn p_id S.bigMoneySmithy
 
 run :: D.GameState -> IO String
 run state = do
@@ -75,7 +75,7 @@ main = do
     args <- getArgs
     let iterations = case args of
                        [iterations_] -> read iterations_ :: Int
-                       _ -> 500
+                       _ -> 5000
     results <- forM [1..iterations] $ \i -> if even i
                                         then do
                                           run $ D.GameState players cards

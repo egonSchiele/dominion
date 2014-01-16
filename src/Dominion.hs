@@ -114,7 +114,7 @@ buys playerId card = do
     case validation of
       Left x -> return $ Left x
       Right _ -> do
-                   modifyPlayer playerId $ over P.discard (card:)
+                   modifyPlayer playerId $ \player -> over P.discard (card:) $ over P.buys (subtract 1) $ over P.extraMoney (subtract $ card ^. C.cost) player
                    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
                    -- liftIO $ putStrLn $ printf "player %d bought a %s" playerId (card ^. C.name)
                    return $ Right ()
@@ -124,22 +124,22 @@ buys playerId card = do
 buysByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
 buysByPreference playerId cards = do
     player <- getPlayer playerId
-    forM_ [1..(player ^. P.buys)] $ \_ -> do
+    when ((player ^. P.buys) > 0) $ do
       purchasableCards <- filterM (\card -> validateBuy playerId card >>= eitherToBool) cards
       when (not (null purchasableCards)) $ do
         playerId `buys` (head purchasableCards)
-        return ()
+        playerId `buysByPreference` cards
 
 -- Give an array of cards, in order of preference of play.
 -- We'll try to play as many cards as possible, in order of preference.
 playsByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
 playsByPreference playerId cards = do
     player <- getPlayer playerId
-    forM_ [1..(player ^. P.actions)] $ \_ -> do
+    when ((player ^. P.actions) > 0) $ do
       playableCards <- filterM (\card -> validatePlay playerId card >>= eitherToBool) cards
       when (not (null playableCards)) $ do
         playerId `plays` (head playableCards)
-        return ()
+        playerId `playsByPreference` cards
 
 log str x = x
 
@@ -164,6 +164,7 @@ plays playerId card = do
       Right _ -> do
                -- liftIO . putStrLn $ printf "player %d plays a %s!" playerId (card ^. C.name)
                mapM_ useEffect (card ^. C.effects)
+               modifyPlayer playerId $ \player -> over P.hand (delete card) $ over P.discard (card:) $ over P.actions (subtract 1) $ player
                return $ Right ()
     where useEffect (C.PlusAction x) = log ("+ " ++ (show x) ++ " actions") modifyPlayer playerId $ over P.actions (+x)
           useEffect (C.PlusCoin x)   = log ("+ " ++ (show x) ++ " coin") modifyPlayer playerId $ over P.extraMoney (+x)
