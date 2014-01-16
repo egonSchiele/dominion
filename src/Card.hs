@@ -1,14 +1,19 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Card where
+import Control.Lens
+
 data CardType = Action | Attack | Reaction | Treasure | Victory | Duration deriving (Show, Eq)
 
 data CardEffect = CoinValue Int | VPValue Int | PlusDraw Int | PlusCoin Int | PlusBuy Int | PlusAction Int | Trash Int | DurationDraw Int | DurationAction Int | DurationCoin Int | DurationBuy Int deriving (Show, Eq)
 
 data Card = Card {
-              name :: String,
-              cost :: Int,
-              cardType :: [CardType],
-              effects :: [CardEffect]
+              _name :: String,
+              _cost :: Int,
+              _cardType :: [CardType],
+              _effects :: [CardEffect]
 } deriving (Show, Eq)
+
+makeLenses ''Card
 
 -- Treasure cards
 copper = Card "Copper" 0 [Treasure] [CoinValue 1]

@@ -43,8 +43,8 @@ count x list = length $ filter (==x) list
 countPoints :: P.Player -> Int
 countPoints player = sum $ map countValue effects
     where cards        = player ^. P.deck ++ player ^. P.discard
-          victoryCards = filter (\card -> C.Victory `elem` C.cardType card) cards
-          effects      = concatMap C.effects victoryCards
+          victoryCards = filter (\card -> C.Victory `elem` (card ^. C.cardType)) cards
+          effects      = concatMap C._effects victoryCards
           countValue (C.VPValue x) = x
           countValue _ = 0
 

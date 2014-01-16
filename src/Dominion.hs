@@ -5,7 +5,7 @@ import qualified Player as P
 import qualified Card as C
 import Control.Monad
 import Data.Maybe
-import Control.Monad.State
+import Control.Monad.State hiding (state)
 import Control.Concurrent
 import Control.Lens
 import Control.Monad.IO.Class
@@ -54,20 +54,22 @@ shuffleDeck_ player = set P.discard [] $ set P.deck newDeck player
                 deck    = player ^. P.deck
                 newDeck = unsafePerformIO $ myShuffle (deck ++ discard)
 
--- only gets called when we know that the player has at least 5 cards in
--- his/her deck
-drawFromFull playerId = modifyPlayer playerId $ \player -> 
-                            over P.deck (drop 5) $ 
-                              over P.hand (++ (take 5 (player ^. P.deck))) player
+-- private method that gets called from `drawFromDeck`
+-- only gets called when we know that the player has
+-- at least 5 cards in his/her deck
+drawFromFull playerId numCards = modifyPlayer playerId $ \player -> 
+                            over P.deck (drop numCards) $ 
+                              over P.hand (++ (take numCards (player ^. P.deck))) player
  
--- draw 5 cards from the deck of a player. Returns the drawn cards.
-drawFromDeck :: PlayerId -> StateT GameState IO ()
-drawFromDeck playerId = do
+drawFromDeck :: PlayerId -> Int -> StateT GameState IO ()
+drawFromDeck playerId numCards = do
     player <- getPlayer playerId
     let deck = player ^. P.deck
-    if (length deck) >= 5
-      then drawFromFull playerId
-      else shuffleDeck playerId >> drawFromFull playerId
+    if (length deck) >= numCards
+      then drawFromFull playerId numCards
+      else do
+        shuffleDeck playerId
+        drawFromFull playerId numCards
 
 -- number of treasures this hand has
 handValue :: PlayerId -> StateT GameState IO Int
@@ -76,19 +78,46 @@ handValue playerId = do
     return $ sum (map coinValue (player ^. P.hand)) + (player ^. P.extraMoney)
 
 coinValue :: C.Card -> Int
-coinValue card = sum $ map effect (C.effects card)
+coinValue card = sum $ map effect (card ^. C.effects)
           where effect (C.CoinValue num) = num
                 effect _ = 0
 
 -- player purchases a card
-purchases :: PlayerId -> C.Card -> StateT GameState IO ()
+purchases :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
 purchases playerId card = do
-    modifyPlayer playerId $ over P.discard (card:)
-    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-    liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (C.name card)
+    money <- handValue playerId
+    state <- get
+    player <- getPlayer playerId
+    if money < (card ^. C.cost)
+      then return . Left $ printf "Not enough money. You have %d but this card costs %d" money (card ^. C.cost)
+      else if not (card `elem` (state ^. cards))
+             then return . Left $ printf "We've run out of that card (%s)" (card ^. C.name)
+             else if (player ^. P.buys) < 1
+                    then return . Left $ "You don't have any buys remaining!"
+                    else do
+                       modifyPlayer playerId $ over P.discard (card:)
+                       modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
+                       liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
+                       return $ Right ()
+
+-- player plays an action card
+plays :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+plays playerId card = do
+    player <- getPlayer playerId
+    if not (C.Action `elem` (card ^. C.cardType))
+      then return . Left $ printf "%s is not an action card" (card ^. C.name)
+      else if (player ^. P.actions) < 1
+             then return . Left $ "You don't have any actions remaining!"
+             else do
+               mapM_ useEffect (card ^. C.effects)
+               return $ Right ()
+    where useEffect (C.PlusAction x) = modifyPlayer playerId $ over P.actions (+x)
+          useEffect (C.PlusCoin x)   = modifyPlayer playerId $ over P.extraMoney (+x)
+          useEffect (C.PlusBuy x)    = modifyPlayer playerId $ over P.buys (+x)
+          useEffect (C.PlusDraw x)   = drawFromDeck playerId x
 
 discardHand :: PlayerId -> StateT GameState IO ()
-discardHand playerId = modifyPlayer playerId $ \player -> over P.discard (++ (player ^. P.hand)) player
+discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
 
 -- the big money strategy
 bigMoney playerId = do
@@ -104,7 +133,8 @@ bigMoney_ playerId money
 
 -- player plays given strategy
 playTurn playerId strategy = do
-    drawFromDeck playerId
+    drawFromDeck playerId 5
+    modifyPlayer playerId $ \player -> set P.actions 1 $ set P.buys 1 $ set P.extraMoney 0 player
     strategy playerId
     discardHand playerId
 
