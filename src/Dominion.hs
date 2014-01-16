@@ -93,8 +93,8 @@ handValue playerId = do
     return $ sum (map coinValue (player ^. P.hand)) + (player ^. P.extraMoney)
 
 -- validate that this player is able to purchase this card
-validatePurchase :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-validatePurchase playerId card = do
+validateBuy :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+validateBuy playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
@@ -106,28 +106,28 @@ validatePurchase playerId card = do
                     then return . Left $ "You don't have any buys remaining!"
                     else return $ Right ()
 
--- player purchases a card
-purchases :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-purchases playerId card = do
+-- player buys a card
+buys :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+buys playerId card = do
     state <- get
-    validation <- validatePurchase playerId card
+    validation <- validateBuy playerId card
     case validation of
       Left x -> return $ Left x
       Right _ -> do
                    modifyPlayer playerId $ over P.discard (card:)
                    modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-                   -- liftIO $ putStrLn $ printf "player %d purchased a %s" playerId (card ^. C.name)
+                   -- liftIO $ putStrLn $ printf "player %d bought a %s" playerId (card ^. C.name)
                    return $ Right ()
 
--- Give an array of cards, in order of preference of purchase.
--- We'll try to purchase as many cards as possible, in order of preference.
-purchasesByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
-purchasesByPreference playerId cards = do
+-- Give an array of cards, in order of preference of buy.
+-- We'll try to buy as many cards as possible, in order of preference.
+buysByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
+buysByPreference playerId cards = do
     player <- getPlayer playerId
     forM_ [1..(player ^. P.buys)] $ \_ -> do
-      purchasableCards <- filterM (\card -> validatePurchase playerId card >>= eitherToBool) cards
+      purchasableCards <- filterM (\card -> validateBuy playerId card >>= eitherToBool) cards
       when (not (null purchasableCards)) $ do
-        playerId `purchases` (head purchasableCards)
+        playerId `buys` (head purchasableCards)
         return ()
 
 -- Give an array of cards, in order of preference of play.

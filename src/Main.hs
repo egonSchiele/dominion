@@ -75,7 +75,7 @@ main = do
     args <- getArgs
     let iterations = case args of
                        [iterations_] -> read iterations_ :: Int
-                       _ -> 5000
+                       _ -> 500
     results <- forM [1..iterations] $ \i -> if even i
                                         then do
                                           run $ D.GameState players cards
