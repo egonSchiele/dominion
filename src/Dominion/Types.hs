@@ -26,7 +26,24 @@ data CardEffect = CoinValue Int
                 | DurationAction Int
                 | DurationCoin Int
                 | DurationBuy Int
+                | TrashCards Int
+                | TrashThisCard
+                | GainCardUpto Int
                 | PlayActionCard Int
+                | AdventurerEffect
+                | BureaucratEffect
+                | CellarEffect
+                | ChancellorEffect
+                | GardensEffect
+                | LibraryEffect
+                | MineEffect
+                | MoneylenderEffect
+                | RemodelEffect
+                | SpyEffect
+                | ThiefEffect
+                | OthersPlusDraw Int
+                | OthersDiscardTo Int
+                | OthersGainCurse Int
                 deriving (Show, Eq)
 
 data Card = Card {
