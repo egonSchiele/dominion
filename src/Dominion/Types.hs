@@ -73,3 +73,5 @@ makeLenses ''GameState
 -- value of whatever function.
 type Dominion a = StateT GameState IO a
 type Strategy = PlayerId -> Dominion ()
+
+data Option = Iterations Int | Log Bool

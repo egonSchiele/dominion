@@ -1,8 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dominion where
+module Dominion (Option(..), module Dominion) where
 import Prelude hiding (log)
 import qualified Dominion.Types as T
+import Dominion.Types (Option(..))
 import qualified Dominion.Cards as CA
 import Control.Monad
 import Data.Maybe
@@ -20,12 +21,17 @@ import Dominion.Internal
 makePlayer :: String -> T.Player
 makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] 1 1 0
 
-dominion :: [T.Player] -> [T.Strategy] -> IO ()
-dominion = dominionWithOpts [Iterations 1000, Log False]
+uses :: String -> T.Strategy -> (T.Player, T.Strategy)
+name `uses` strategy = ((makePlayer name), strategy)
 
-dominionWithOpts :: [Option] -> [T.Player] -> [T.Strategy] -> IO ()
-dominionWithOpts options players strategies = do
-    let iterations = findIteration options |||| 1000
+dominion :: [(T.Player, T.Strategy)] -> IO ()
+dominion = dominionWithOpts []
+
+dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO ()
+dominionWithOpts options list = do
+    let players = map fst list
+        strategies = map snd list
+        iterations = findIteration options |||| 1000
         verbose_ = findLog options |||| False
     results <- forM [1..iterations] $ \i -> if even i
                                         then run (T.GameState players cards 1 verbose_) strategies
@@ -107,36 +113,6 @@ plays playerId card = do
                return $ Right $ case (catMaybes results) of
                           [] -> Nothing
                           [result] -> Just result
-
-
--- used internally by the `plays` function.
--- Returns Nothing if the effect doesnt need anything else,
--- or returns (playerId, the effect) if its got a second
--- part (like with throne room or chapel).
-usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe (T.PlayerId, T.CardEffect))
-playerId `usesEffect` (T.PlusAction x) = do
-    log playerId ("+ " ++ (show x) ++ " actions")
-    modifyPlayer playerId $ over T.actions (+x)
-    return Nothing
-
-playerId `usesEffect` (T.PlusCoin x) = do
-    log playerId ("+ " ++ (show x) ++ " coin")
-    modifyPlayer playerId $ over T.extraMoney (+x)
-    return Nothing
-
-playerId `usesEffect` (T.PlusBuy x) = do
-    log playerId ("+ " ++ (show x) ++ " buys")
-    modifyPlayer playerId $ over T.buys (+x)
-    return Nothing
-
-playerId `usesEffect` (T.PlusDraw x) = do
-    log playerId ("+ " ++ (show x) ++ " cards")
-    drawFromDeck playerId x
-    return Nothing
-
-playerId `usesEffect` effect@(T.PlayActionCard x) = do
-    log playerId ("choose an action card and play it " ++ (show x) ++ " times")
-    return $ Just (playerId, effect)
 
 -- `with` might lead to more extra effects. And specifically, lets say you
 -- play throne room on throne room. Now you have TWO extra effects, i.e.

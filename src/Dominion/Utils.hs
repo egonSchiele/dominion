@@ -4,6 +4,14 @@ import Control.Monad.State
 import Data.Random.Extras
 import Data.Random hiding (shuffle)
 import System.Random
+import Language.Haskell.HsColour.ANSI
+
+red = highlight [Foreground Red]
+green = highlight [Foreground Green]
+yellow = highlight [Foreground Yellow]
+blue = highlight [Foreground Blue]
+cyan = highlight [Foreground Cyan]
+dim = highlight [Dim]
 
 (||||) :: Maybe a -> a -> a
 (Just a) |||| _ = a

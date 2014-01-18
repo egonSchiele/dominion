@@ -1,6 +1,5 @@
 import Dominion
 import Dominion.Cards
+import Dominion.Strategies
 
-players = [makePlayer "adit", makePlayer "maggie"]
-
-main = putStrLn "Hello World!"
+main = dominionWithOpts [Iterations 1, Log True] ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]

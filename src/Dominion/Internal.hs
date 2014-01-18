@@ -29,7 +29,8 @@ log playerId str = do
     let name = player ^. T.playerName
         buys = player ^. T.buys
         actions = player ^. T.actions
-    log_ $ printf "[player %d, name: %s, money: %d, buys: %d, actions: %d] %s" playerId name money buys actions str
+        statusLine = printf "[player %s, name: %s, money: %s, buys: %s, actions: %s]" (yellow . show $ playerId) (yellow name) (green . show $ money) (green . show $ buys) (red . show $ actions)
+    log_ $ statusLine ++ ": " ++ (green str)
 
 log_ :: String -> T.Dominion ()
 log_ str = do
@@ -103,8 +104,8 @@ returnResults :: T.GameState -> IO String
 returnResults state = do
     let results = map (id &&& countPoints) (state ^. T.players)
     when (state ^. T.verbose) $ do
+      putStrLn "Game Over!"
       forM_ results $ \(player, points) -> do
-        putStrLn "Game Over!"
         putStrLn $ printf "player %s got %d points" (player ^. T.playerName) points
     return $ view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
 
@@ -163,14 +164,41 @@ validatePlay playerId card = do
 discardHand :: T.PlayerId -> T.Dominion ()
 discardHand playerId = modifyPlayer playerId $ \player -> set T.hand [] $ over T.discard (++ (player ^. T.hand)) player
 
-data Option = Iterations Int | Log Bool
-
-findIteration :: [Option] -> Maybe Int
+findIteration :: [T.Option] -> Maybe Int
 findIteration [] = Nothing
-findIteration ((Iterations x):xs) = Just x
+findIteration ((T.Iterations x):xs) = Just x
 findIteration (_:xs) = findIteration xs
 
-findLog :: [Option] -> Maybe Bool
+findLog :: [T.Option] -> Maybe Bool
 findLog [] = Nothing
-findLog ((Log x):xs) = Just x
+findLog ((T.Log x):xs) = Just x
 findLog (_:xs) = findLog xs
+
+-- used internally by the `plays` function.
+-- Returns Nothing if the effect doesnt need anything else,
+-- or returns (playerId, the effect) if its got a second
+-- part (like with throne room or chapel).
+usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe (T.PlayerId, T.CardEffect))
+playerId `usesEffect` (T.PlusAction x) = do
+    log playerId ("+ " ++ (show x) ++ " actions")
+    modifyPlayer playerId $ over T.actions (+x)
+    return Nothing
+
+playerId `usesEffect` (T.PlusCoin x) = do
+    log playerId ("+ " ++ (show x) ++ " coin")
+    modifyPlayer playerId $ over T.extraMoney (+x)
+    return Nothing
+
+playerId `usesEffect` (T.PlusBuy x) = do
+    log playerId ("+ " ++ (show x) ++ " buys")
+    modifyPlayer playerId $ over T.buys (+x)
+    return Nothing
+
+playerId `usesEffect` (T.PlusDraw x) = do
+    log playerId ("+ " ++ (show x) ++ " cards")
+    drawFromDeck playerId x
+    return Nothing
+
+playerId `usesEffect` effect@(T.PlayActionCard x) = do
+    log playerId ("choose an action card and play it " ++ (show x) ++ " times")
+    return $ Just (playerId, effect)
