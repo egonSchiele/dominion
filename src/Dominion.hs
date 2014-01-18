@@ -2,111 +2,54 @@
 
 module Dominion where
 import Prelude hiding (log)
-import qualified Player as P
-import qualified Card as C
+import qualified Dominion.Types as T
+import qualified Dominion.Cards as CA
 import Control.Monad
 import Data.Maybe
 import Control.Monad.State hiding (state)
-import Control.Concurrent
 import Control.Lens hiding (has)
 import Control.Monad.IO.Class
 import Text.Printf
 import Data.List
-import Data.Random.Extras
-import Data.Random hiding (shuffle)
-import System.Random
-import System.IO.Unsafe
 import Control.Monad
-import qualified Debug.Trace as D
-import Utils
-import GameState
+import Dominion.Utils
 import Data.Either
 import Control.Applicative
+import Dominion.Internal
 
-data ExtraEffect = ThroneRoom C.Card
+makePlayer :: String -> T.Player
+makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] 1 1 0
 
+dominion :: [T.Player] -> [T.Strategy] -> IO ()
+dominion = dominionWithOpts [Iterations 1000, Log False]
 
-eitherToBool :: (Either String ()) -> StateT GameState IO Bool
-eitherToBool (Left _) = return False
-eitherToBool (Right _) = return True
+dominionWithOpts :: [Option] -> [T.Player] -> [T.Strategy] -> IO ()
+dominionWithOpts options players strategies = do
+    let iterations = findIteration options |||| 1000
+        verbose_ = findLog options |||| False
+    results <- forM [1..iterations] $ \i -> if even i
+                                        then run (T.GameState players cards 1 verbose_) strategies
+                                        else run (T.GameState (reverse players) cards 1 verbose_) strategies
+    forM_ players $ \player -> do
+      let name = player ^. T.playerName
+      putStrLn $ printf "player %s won %d times" name (count name results)
 
-coinValue :: C.Card -> Int
-coinValue card = sum $ map effect (card ^. C.effects)
-          where effect (C.CoinValue num) = num
-                effect _ = 0
-
-myShuffle :: [C.Card] -> IO [C.Card]
-myShuffle deck = do
-    gen <- getStdGen
-    let (shuffled, newGen) = sampleState (shuffle deck) gen
-    setStdGen newGen
-    return shuffled
-
-type PlayerId = Int
-
--- get player from game state
-getPlayer :: PlayerId -> StateT GameState IO P.Player
-getPlayer playerId = do
-    state <- get
-    return $ (state ^. players) !! playerId
-
--- takes a player id and a function.
--- That function takes a player and returns a modified player.
-modifyPlayer :: PlayerId -> (P.Player -> P.Player) -> StateT GameState IO ()
-modifyPlayer playerId func = modify $ \state -> over (players . element playerId) func $ state
-
--- move this players discards + hand into his deck and shuffle the deck
-shuffleDeck playerId = modifyPlayer playerId shuffleDeck_
-
-shuffleDeck_ player = set P.discard [] $ set P.deck newDeck player
-          where discard = player ^. P.discard
-                deck    = player ^. P.deck
-                hand    = player ^. P.hand
-                newDeck = unsafePerformIO $ myShuffle (deck ++ discard ++ hand)
-
--- private method that gets called from `drawFromDeck`
--- only gets called when we know that the player has
--- at least 5 cards in his/her deck
-drawFromFull playerId numCards = modifyPlayer playerId $ \player -> 
-                            over P.deck (drop numCards) $ 
-                              over P.hand (++ (take numCards (player ^. P.deck))) player
- 
--- given a player id and a number of cards to draw, draws that many cards
--- from the deck, shuffling if necessary.
--- TODO if the deck doesn't have enough cards, we should draw the cards in
--- the deck before shuffling and drawing the rest.
-drawFromDeck :: PlayerId -> Int -> StateT GameState IO ()
-drawFromDeck playerId numCards = do
-    player <- getPlayer playerId
-    let deck = player ^. P.deck
-    if (length deck) >= numCards
-      then drawFromFull playerId numCards
-      else do
-        shuffleDeck playerId
-        drawFromFull playerId numCards
-
--- amount of money this player's hand is worth
-handValue :: PlayerId -> StateT GameState IO Int
-handValue playerId = do
-    player <- getPlayer playerId
-    return $ sum (map coinValue (player ^. P.hand)) + (player ^. P.extraMoney)
-
--- validate that this player is able to purchase this card
-validateBuy :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-validateBuy playerId card = do
-    money <- handValue playerId
-    state <- get
-    player <- getPlayer playerId
-    if money < (card ^. C.cost)
-      then return . Left $ printf "Not enough money. You have %d but this card costs %d" money (card ^. C.cost)
-      else if not (card `elem` (state ^. cards))
-             then return . Left $ printf "We've run out of that card (%s)" (card ^. C.name)
-             else if (player ^. P.buys) < 1
-                    then return . Left $ "You don't have any buys remaining!"
-                    else return $ Right ()
+cards = concatMap pileOf [ CA.copper,
+                           CA.silver,
+                           CA.gold,
+                           CA.estate,
+                           CA.duchy,
+                           CA.province,
+                           CA.curse,
+                           CA.smithy,
+                           CA.village,
+                           CA.laboratory,
+                           CA.festival,
+                           CA.market,
+                           CA.woodcutter ]
 
 -- player buys a card
-buys :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
+buys :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
 buys playerId card = do
     state <- get
     validation <- validateBuy playerId card
@@ -114,18 +57,17 @@ buys playerId card = do
       Left x -> return $ Left x
       Right _ -> do
                    money <- handValue playerId
-                   log $ printf "player %d has %d money" playerId money
-                   modifyPlayer playerId $ \player -> over P.discard (card:) $ over P.buys (subtract 1) $ over P.extraMoney (subtract $ card ^. C.cost) player
-                   modify $ \state_ -> set cards (delete card (state_ ^. cards)) state_
-                   log $ printf "player %d bought a %s" playerId (card ^. C.name)
+                   modifyPlayer playerId $ \player -> over T.discard (card:) $ over T.buys (subtract 1) $ over T.extraMoney (subtract $ card ^. T.cost) player
+                   modify $ \state_ -> set T.cards (delete card (state_ ^. T.cards)) state_
+                   log playerId $ printf "bought a %s" (card ^. T.name)
                    return $ Right ()
 
 -- Give an array of cards, in order of preference of buy.
 -- We'll try to buy as many cards as possible, in order of preference.
-buysByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
+buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
     player <- getPlayer playerId
-    when ((player ^. P.buys) > 0) $ do
+    when ((player ^. T.buys) > 0) $ do
       purchasableCards <- filterM (\card -> validateBuy playerId card >>= eitherToBool) cards
       when (not (null purchasableCards)) $ do
         playerId `buys` (head purchasableCards)
@@ -133,29 +75,14 @@ buysByPreference playerId cards = do
 
 -- Give an array of cards, in order of preference of play.
 -- We'll try to play as many cards as possible, in order of preference.
-playsByPreference :: PlayerId -> [C.Card] -> StateT GameState IO ()
+playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
     player <- getPlayer playerId
-    when ((player ^. P.actions) > 0) $ do
+    when ((player ^. T.actions) > 0) $ do
       playableCards <- filterM (\card -> validatePlay playerId card >>= eitherToBool) cards
       when (not (null playableCards)) $ do
         playerId `plays` (head playableCards)
         playerId `playsByPreference` cards
-
-log :: String -> StateT GameState IO ()
-log str = liftIO $ putStrLn str
-
--- check if a player can play a card
-validatePlay :: PlayerId -> C.Card -> StateT GameState IO (Either String ())
-validatePlay playerId card = do
-    player <- getPlayer playerId
-    if not (C.Action `elem` (card ^. C.cardType))
-      then return . Left $ printf "%s is not an action card" (card ^. C.name)
-      else if (player ^. P.actions) < 1
-             then return . Left $ "You don't have any actions remaining!"
-             else if not (card `elem` (player ^. P.hand))
-                    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
-                    else return $ Right ()
 
 -- player plays an action card. We return an Either.
 -- On error, we'll return an error message.
@@ -167,15 +94,15 @@ validatePlay playerId card = do
 --  play twice.
 --
 --  You can use the followup with `with`.
-plays :: PlayerId -> C.Card -> StateT GameState IO (Either String (Maybe (PlayerId, C.CardEffect)))
+plays :: T.PlayerId -> T.Card -> T.Dominion (Either String (Maybe (T.PlayerId, T.CardEffect)))
 plays playerId card = do
     validation <- validatePlay playerId card
     case validation of
       Left x -> return $ Left x
       Right _ -> do
-               log $ printf "player %d plays a %s!" playerId (card ^. C.name)
-               results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
-               modifyPlayer playerId $ \player -> over P.hand (delete card) $ over P.discard (card:) $ over P.actions (subtract 1) $ player
+               log playerId $ printf "plays a %s!" (card ^. T.name)
+               results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
+               modifyPlayer playerId $ \player -> over T.hand (delete card) $ over T.discard (card:) $ over T.actions (subtract 1) $ player
                -- we should get at most *one* effect to return
                return $ Right $ case (catMaybes results) of
                           [] -> Nothing
@@ -186,29 +113,29 @@ plays playerId card = do
 -- Returns Nothing if the effect doesnt need anything else,
 -- or returns (playerId, the effect) if its got a second
 -- part (like with throne room or chapel).
-usesEffect :: PlayerId -> C.CardEffect -> StateT GameState IO (Maybe (PlayerId, C.CardEffect))
-playerId `usesEffect` (C.PlusAction x) = do
-    log ("+ " ++ (show x) ++ " actions")
-    modifyPlayer playerId $ over P.actions (+x)
+usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe (T.PlayerId, T.CardEffect))
+playerId `usesEffect` (T.PlusAction x) = do
+    log playerId ("+ " ++ (show x) ++ " actions")
+    modifyPlayer playerId $ over T.actions (+x)
     return Nothing
 
-playerId `usesEffect` (C.PlusCoin x) = do
-    log ("+ " ++ (show x) ++ " coin")
-    modifyPlayer playerId $ over P.extraMoney (+x)
+playerId `usesEffect` (T.PlusCoin x) = do
+    log playerId ("+ " ++ (show x) ++ " coin")
+    modifyPlayer playerId $ over T.extraMoney (+x)
     return Nothing
 
-playerId `usesEffect` (C.PlusBuy x) = do
-    log ("+ " ++ (show x) ++ " buys")
-    modifyPlayer playerId $ over P.buys (+x)
+playerId `usesEffect` (T.PlusBuy x) = do
+    log playerId ("+ " ++ (show x) ++ " buys")
+    modifyPlayer playerId $ over T.buys (+x)
     return Nothing
 
-playerId `usesEffect` (C.PlusDraw x) = do
-    log ("+ " ++ (show x) ++ " cards")
+playerId `usesEffect` (T.PlusDraw x) = do
+    log playerId ("+ " ++ (show x) ++ " cards")
     drawFromDeck playerId x
     return Nothing
 
-playerId `usesEffect` effect@(C.PlayActionCard x) = do
-    log ("choose an action card and play it " ++ (show x) ++ " times")
+playerId `usesEffect` effect@(T.PlayActionCard x) = do
+    log playerId ("choose an action card and play it " ++ (show x) ++ " times")
     return $ Just (playerId, effect)
 
 -- `with` might lead to more extra effects. And specifically, lets say you
@@ -216,14 +143,14 @@ playerId `usesEffect` effect@(C.PlayActionCard x) = do
 -- you can choose a card to play twice TWICE.
 --
 -- Thats why `with` might return an array of extra effects, not just one.
-with :: StateT GameState IO (Either String (Maybe (PlayerId, C.CardEffect))) -> ExtraEffect -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+with :: T.Dominion (Either String (Maybe (T.PlayerId, T.CardEffect))) -> T.ExtraEffect -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
 info `with` extraEffect = do
     result <- info
     result `_with` extraEffect
 
 -- just like `with`, except you can give it an array of info, and an
 -- array of the extra effects you want to use with each info
-withMulti :: StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)])) -> [ExtraEffect] -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+withMulti :: T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)])) -> [T.ExtraEffect] -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
 info `withMulti` extraEffects = do
     results_ <- info
     case results_ of
@@ -233,22 +160,21 @@ info `withMulti` extraEffects = do
       Left str -> return $ Left str
       _ -> return $ Right Nothing
 
-
 -- private method, use if you don't want to pass in a state monad into
 -- `with`. This is what `with` uses behind the scenes.
-_with :: Either String (Maybe (PlayerId, C.CardEffect)) -> ExtraEffect -> StateT GameState IO (Either String (Maybe [(PlayerId, C.CardEffect)]))
+_with :: Either String (Maybe (T.PlayerId, T.CardEffect)) -> T.ExtraEffect -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
 Left str `_with` _ = return $ Left str
 Right Nothing `_with` _ = return $ Right Nothing
 
-Right (Just (playerId, C.PlayActionCard x)) `_with` (ThroneRoom card) = do
+Right (Just (playerId, T.PlayActionCard x)) `_with` (T.ThroneRoom card) = do
   player <- getPlayer playerId
-  if not (card `elem` (player ^. P.hand))
-    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. C.name)
+  if not (card `elem` (player ^. T.hand))
+    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
     else do
-      log $ printf "playing %s twice!" (card ^. C.name)
-      results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
-      results2 <- mapM (\effect -> playerId `usesEffect` effect) (card ^. C.effects)
-      modifyPlayer playerId $ \player -> over P.hand (delete card) $ over P.discard (card:) player
+      log playerId $ printf "playing %s twice!" (card ^. T.name)
+      results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
+      results2 <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
+      modifyPlayer playerId $ \player -> over T.hand (delete card) $ over T.discard (card:) player
       let finalResults = catMaybes (results ++ results2)
       return $ Right $ case finalResults of
                  [] -> Nothing
@@ -256,18 +182,8 @@ Right (Just (playerId, C.PlayActionCard x)) `_with` (ThroneRoom card) = do
 
 _ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
 
-discardHand :: PlayerId -> StateT GameState IO ()
-discardHand playerId = modifyPlayer playerId $ \player -> set P.hand [] $ over P.discard (++ (player ^. P.hand)) player
-
 -- see if a player has a card in his hand
-has :: P.Player -> C.Card -> Bool
-has player card = card `elem` (player ^. P.hand)
-
--- player plays given strategy
-playTurn playerId strategy = do
-    drawFromDeck playerId 5
-    modifyPlayer playerId $ \player -> set P.actions 1 $ set P.buys 1 $ set P.extraMoney 0 player
+has :: T.PlayerId -> T.Card -> T.Dominion Bool
+has playerId card = do
     player <- getPlayer playerId
-    log $ "player's hand has: " ++ (show . map C._name $ player ^. P.hand)
-    strategy playerId
-    discardHand playerId
+    return $ card `elem` (player ^. T.hand)
