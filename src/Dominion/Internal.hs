@@ -112,9 +112,9 @@ returnResults state = do
 cardsOf count card = take count $ repeat card
 pileOf card = 10 `cardsOf` card
  
-eitherToBool :: (Either String ()) -> T.Dominion Bool
-eitherToBool (Left _) = return False
-eitherToBool (Right _) = return True
+eitherToBool :: (Either String ()) -> Bool
+eitherToBool (Left _) = False
+eitherToBool (Right _) = True
 
 -- move this players discards + hand into his deck and shuffle the deck
 shuffleDeck :: T.PlayerId -> T.Dominion ()

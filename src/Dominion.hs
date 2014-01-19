@@ -57,14 +57,16 @@ cards = concatMap pileOf [ CA.copper,
 -- player buys a card
 buys :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
 buys playerId card = do
-    state <- get
     validation <- validateBuy playerId card
     case validation of
       Left x -> return $ Left x
       Right _ -> do
                    money <- handValue playerId
-                   modifyPlayer playerId $ \player -> over T.discard (card:) $ over T.buys (subtract 1) $ over T.extraMoney (subtract $ card ^. T.cost) player
-                   modify $ \state_ -> set T.cards (delete card (state_ ^. T.cards)) state_
+                   modifyPlayer playerId $ \p -> over T.discard (card:) $
+                                                 over T.buys (subtract 1) $
+                                                 -- this works because extraMoney can be negative
+                                                 over T.extraMoney (subtract $ card ^. T.cost) p
+                   modify $ over T.cards (delete card)
                    log playerId $ printf "bought a %s" (card ^. T.name)
                    return $ Right ()
 
@@ -74,7 +76,7 @@ buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
     player <- getPlayer playerId
     when ((player ^. T.buys) > 0) $ do
-      purchasableCards <- filterM (\card -> validateBuy playerId card >>= eitherToBool) cards
+      purchasableCards <- filterM (eitherToBool <$> validateBuy playerId) cards
       when (not (null purchasableCards)) $ do
         playerId `buys` (head purchasableCards)
         playerId `buysByPreference` cards
@@ -85,7 +87,7 @@ playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
     player <- getPlayer playerId
     when ((player ^. T.actions) > 0) $ do
-      playableCards <- filterM (\card -> validatePlay playerId card >>= eitherToBool) cards
+      playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
       when (not (null playableCards)) $ do
         playerId `plays` (head playableCards)
         playerId `playsByPreference` cards

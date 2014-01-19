@@ -21,7 +21,6 @@ data CardEffect = CoinValue Int
                 | PlusCoin Int
                 | PlusBuy Int
                 | PlusAction Int
-                | Trash Int
                 | DurationDraw Int
                 | DurationAction Int
                 | DurationCoin Int
