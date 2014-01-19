@@ -88,10 +88,11 @@ run state strategies = do
 
 countPoints :: T.Player -> Int
 countPoints player = sum $ map countValue effects
-    where cards        = player ^. T.deck ++ player ^. T.discard
+    where cards        = player ^. T.deck ++ player ^. T.discard ++ player ^. T.hand
           victoryCards = filter (\card -> T.Victory `elem` (card ^. T.cardType)) cards
           effects      = concatMap T._effects victoryCards
           countValue (T.VPValue x) = x
+          countValue (T.GardensEffect) = length cards `div` 10
           countValue _ = 0
 
 -- get player from game state
@@ -276,3 +277,19 @@ playerId `usesEffect` effect@(T.MoneylenderEffect) = do
 playerId `usesEffect` effect@(T.RemodelEffect) = do
     log playerId ("Trash a card from your hand. Gain a card costing up to 2 Coins more than the trashed card.")
     return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.SpyEffect) = do
+    log playerId ("Each player (including you) reveals the top card of his deck and either discards it or puts it back, your choice.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.ThiefEffect) = do
+    log playerId ("Each other player reveals the top 2 cards of his deck. If they revealed any Treasure cards, they trash one of them that you choose. You may gain any or all of these trashed cards. They discard the other revealed cards.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.OthersGainCurse x) = do
+    log playerId ("All other players gain " ++ (show x) ++ " curses.")
+    -- TODO others gain a curse
+    return Nothing
+
+-- only counted at the end of the game.
+playerId `usesEffect` effect@(T.GardensEffect) = return Nothing

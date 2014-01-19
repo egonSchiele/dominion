@@ -58,6 +58,10 @@ data FollowupAction = ThroneRoom Card
                     | Chancellor Bool
                     | Mine Card
                     | Remodel Card
+                    -- the first element is the list of cards you would discard for yourself,
+                    -- the second is the lsit of cards you want others to discard
+                    | Spy ([Card], [Card])
+                    | Thief ? -- tricky one
 
 ---------------------------
 -- PLAYER

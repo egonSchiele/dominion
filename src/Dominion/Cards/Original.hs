@@ -17,8 +17,6 @@ moat        = Card "Moat" 2 [Action, Reaction] [PlusCard 2]
 moneylender = Card "Moneylender" 4 [Action] [MoneylenderEffect]
 remodel     = Card "Remodel" 4 [Action] [RemodelEffect]
 smithy      = Card "Smithy" 4 [Action] [PlusCard 3]
-
--- TODO:
 spy         = Card "Spy" 4 [Action, Attack] [PlusCard 1, PlusAction 1, SpyEffect]
 thief       = Card "Thief" 4 [Action, Attack] [ThiefEffect]
 throneRoom  = Card "Throne Room" 4 [Action] [PlayActionCard 2]
