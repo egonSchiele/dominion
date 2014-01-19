@@ -177,6 +177,12 @@ findLog (_:xs) = findLog xs
 trashThisCard :: T.Card -> Bool
 trashThisCard card = T.TrashThisCard `elem` (card ^. T.effects)
 
+trashesCard :: T.PlayerId -> T.Card -> T.Dominion ()
+playerId `trashesCard` card = modifyPlayer playerId (over T.hand (delete card))
+
+discardsCard :: T.PlayerId -> T.Card -> T.Dominion ()
+playerId `discardsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+
 -- used internally by the `plays` function.
 -- Returns Nothing if the effect doesnt need anything else,
 -- or returns (playerId, the effect) if its got a second
@@ -204,4 +210,69 @@ playerId `usesEffect` (T.PlusCard x) = do
 
 playerId `usesEffect` effect@(T.PlayActionCard x) = do
     log playerId ("choose an action card and play it " ++ (show x) ++ " times")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` (T.AdventurerEffect) = do
+    log playerId "finding the next two treasures from your deck..."
+    -- TODO implement this
+    drawUntil (\list -> countBy treasures list == 2)
+    return Nothing
+
+playerId `usesEffect` (T.BureaucratEffect) = do
+    let card = CA.silver
+    modifyPlayer playerId $ over T.deck (card:)
+    modify $ over T.cards (delete card)
+    log playerId "+ silver"
+    -- TODO other players show victory cards and
+    -- put on top of their deck, OR show moats
+
+playerId `usesEffect` effect@(T.CellarEffect) = do
+    log playerId ("Discard any number of cards. Draw that number from your deck.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.ChancellorEffect) = do
+    log playerId ("You may immediately move your deck into the discard pile.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.TrashCards x) = do
+    log playerId ("Trash up to " ++ (show x) ++ " cards from your hand.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.OthersPlusCard x) = do
+    log playerId ("Every other player draws " ++ (show x) ++ " card.")
+    -- TODO draw one card for each player.
+    return Nothing
+
+playerId `usesEffect` effect@(T.GainCardUpto x) = do
+    log playerId ("Gain a card costing up to " ++ (show x) ++ " coins.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.LibraryEffect) = do
+    log playerId ("Draw until you have 7 cards in hand. You may set aside any Action cards drawn this way, as you draw them; discard the set aside cards after you finish drawing.")
+    -- TODO draw to 7. Discard action cards automatically?
+    return Nothing
+
+-- NOTE: one side effect of this + council room is:
+-- every player needs to draw their next hand immediately
+-- after they finish playing, instead of at the start of when
+-- they play. Otherwise suppose someone plays a council room
+-- followed by a militia. I need to codify that properly.
+playerId `usesEffect` effect@(T.OthersDiscardTo x) = do
+    log playerId ("Every other player discards down to " ++ (show x) ++ " cards.")
+    -- TODO discard cards for each player.
+    return Nothing
+
+playerId `usesEffect` effect@(T.MineEffect) = do
+    log playerId ("Trash a Treasure card from your hand. Gain a Treasure card costing up to 3 Coins more; put it into your hand.")
+    return $ Just (playerId, effect)
+
+playerId `usesEffect` effect@(T.MoneylenderEffect) = do
+    when (playerId `has` CA.copper) $ do
+      log playerId ("Trashing a copper. +3 coin")
+      playerId `trashesCard` CA.copper
+      modifyPlayer $ over (T.extraMoney) (+3)
+    return Nothing
+
+playerId `usesEffect` effect@(T.RemodelEffect) = do
+    log playerId ("Trash a card from your hand. Gain a card costing up to 2 Coins more than the trashed card.")
     return $ Just (playerId, effect)

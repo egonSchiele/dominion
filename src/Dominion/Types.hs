@@ -54,6 +54,10 @@ data Card = Card {
 makeLenses ''Card
 
 data FollowupAction = ThroneRoom Card
+                    | Cellar [Card]
+                    | Chancellor Bool
+                    | Mine Card
+                    | Remodel Card
 
 ---------------------------
 -- PLAYER

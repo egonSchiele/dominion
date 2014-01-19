@@ -108,12 +108,10 @@ playerId `plays` card = do
                results <- mapM (usesEffect playerId) (card ^. T.effects)
                modifyPlayer playerId (over T.actions (subtract 1))
                if trashThisCard card
-                 then modifyPlayer playerId (over T.hand (delete card))
-                 else modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+                 then playerId `trashesCard` card
+                 else playerId `discardsCard` card
                -- we should get at most *one* effect to return
-               return $ Right $ case (catMaybes results) of
-                          [] -> Nothing
-                          [result] -> Just result
+               return . Right . listToMaybe . catMaybes $ results
 
 -- The input of this function is directly the output of `plays`, so you can
 -- chain these functions together easily. This automatically handles
@@ -143,7 +141,9 @@ results_ `withMulti` followupActions = do
       Right Nothing -> return $ Right Nothing
       Right (Just followups) -> do
           allResults <- mapM (uncurry _with) (zip followups followupActions)
-          return $ Right (Just (concat . catMaybes . rights $ allResults))
+          return $ Right $ case (concat . catMaybes . rights $ allResults) of
+                             [] -> Nothing
+                             xs -> Just xs
 
 -- this is what `with` and `withMulti` use behind the scenes. Those
 -- functions take care of un-binding the data and extracting it. This is
@@ -154,18 +154,16 @@ results_ `withMulti` followupActions = do
 -- return an error (returns a playresult).
 _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
 (playerId, T.PlayActionCard x) `_with` (T.ThroneRoom card) = do
-  player <- getPlayer playerId
-  if not (card `elem` (player ^. T.hand))
-    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
+  hasCard <- playerId `has` card
+  if not hasCard
+    then return . Left $ printf "You don't have a %s in your hand!" (card ^. T.name)
     else do
       log playerId $ printf "playing %s twice!" (card ^. T.name)
-      results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
-      results2 <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
-      modifyPlayer playerId $ \player -> over T.hand (delete card) $ over T.discard (card:) player
-      let finalResults = catMaybes (results ++ results2)
-      return $ Right $ case finalResults of
+      results <- mapM (usesEffect playerId) ((card ^. T.effects) ++ (card ^. T.effects))
+      playerId `discardsCard` card
+      return $ Right $ case (catMaybes results) of
                  [] -> Nothing
-                 x -> Just x
+                 xs -> Just xs
 
 _ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
 
