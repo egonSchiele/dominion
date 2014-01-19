@@ -17,7 +17,7 @@ data CardType = Action
 
 data CardEffect = CoinValue Int
                 | VPValue Int
-                | PlusDraw Int
+                | PlusCard Int
                 | PlusCoin Int
                 | PlusBuy Int
                 | PlusAction Int
@@ -40,7 +40,7 @@ data CardEffect = CoinValue Int
                 | RemodelEffect
                 | SpyEffect
                 | ThiefEffect
-                | OthersPlusDraw Int
+                | OthersPlusCard Int
                 | OthersDiscardTo Int
                 | OthersGainCurse Int
                 deriving (Show, Eq)
@@ -53,7 +53,7 @@ data Card = Card {
 } deriving (Show, Eq)
 makeLenses ''Card
 
-data ExtraEffect = ThroneRoom Card
+data FollowupAction = ThroneRoom Card
 
 ---------------------------
 -- PLAYER
@@ -90,4 +90,15 @@ makeLenses ''GameState
 type Dominion a = StateT GameState IO a
 type Strategy = PlayerId -> Dominion ()
 
+-- when you use a card (either you play it or you buy something),
+-- you get a play result which is either a Left with an error message,
+-- or a Right with a value.
+type PlayResult a = Either String a
+
+-- when you play an action card that needs a decision on your part,
+-- `play` will return a Followup. This is just the player that needs
+-- to followup and the effect they need to follow up on. Then they
+-- can follow up using `with` and passing in the necessary data as the
+-- FollowupAction.
+type Followup = (PlayerId, CardEffect)
 data Option = Iterations Int | Log Bool

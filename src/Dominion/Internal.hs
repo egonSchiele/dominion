@@ -174,6 +174,9 @@ findLog [] = Nothing
 findLog ((T.Log x):xs) = Just x
 findLog (_:xs) = findLog xs
 
+trashThisCard :: T.Card -> Bool
+trashThisCard card = T.TrashThisCard `elem` (card ^. T.effects)
+
 -- used internally by the `plays` function.
 -- Returns Nothing if the effect doesnt need anything else,
 -- or returns (playerId, the effect) if its got a second
@@ -194,7 +197,7 @@ playerId `usesEffect` (T.PlusBuy x) = do
     modifyPlayer playerId $ over T.buys (+x)
     return Nothing
 
-playerId `usesEffect` (T.PlusDraw x) = do
+playerId `usesEffect` (T.PlusCard x) = do
     log playerId ("+ " ++ (show x) ++ " cards")
     drawFromDeck playerId x
     return Nothing

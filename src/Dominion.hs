@@ -55,7 +55,7 @@ cards = concatMap pileOf [ CA.copper,
                            CA.woodcutter ]
 
 -- player buys a card
-buys :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
+buys :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
 buys playerId card = do
     validation <- validateBuy playerId card
     case validation of
@@ -74,23 +74,19 @@ buys playerId card = do
 -- We'll try to buy as many cards as possible, in order of preference.
 buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
-    player <- getPlayer playerId
-    when ((player ^. T.buys) > 0) $ do
-      purchasableCards <- filterM (eitherToBool <$> validateBuy playerId) cards
-      when (not (null purchasableCards)) $ do
-        playerId `buys` (head purchasableCards)
-        playerId `buysByPreference` cards
+    purchasableCards <- filterM (\card -> eitherToBool <$> validateBuy playerId card) cards
+    when (not (null purchasableCards)) $ do
+      playerId `buys` (head purchasableCards)
+      playerId `buysByPreference` cards
 
 -- Give an array of cards, in order of preference of play.
 -- We'll try to play as many cards as possible, in order of preference.
 playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
-    player <- getPlayer playerId
-    when ((player ^. T.actions) > 0) $ do
-      playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
-      when (not (null playableCards)) $ do
-        playerId `plays` (head playableCards)
-        playerId `playsByPreference` cards
+    playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
+    when (not (null playableCards)) $ do
+      playerId `plays` (head playableCards)
+      playerId `playsByPreference` cards
 
 -- player plays an action card. We return an Either.
 -- On error, we'll return an error message.
@@ -102,49 +98,62 @@ playsByPreference playerId cards = do
 --  play twice.
 --
 --  You can use the followup with `with`.
-plays :: T.PlayerId -> T.Card -> T.Dominion (Either String (Maybe (T.PlayerId, T.CardEffect)))
-plays playerId card = do
+plays :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult (Maybe T.Followup))
+playerId `plays` card = do
     validation <- validatePlay playerId card
     case validation of
       Left x -> return $ Left x
       Right _ -> do
                log playerId $ printf "plays a %s!" (card ^. T.name)
-               results <- mapM (\effect -> playerId `usesEffect` effect) (card ^. T.effects)
-               modifyPlayer playerId $ \player -> over T.hand (delete card) $ over T.discard (card:) $ over T.actions (subtract 1) $ player
+               results <- mapM (usesEffect playerId) (card ^. T.effects)
+               modifyPlayer playerId (over T.actions (subtract 1))
+               if trashThisCard card
+                 then modifyPlayer playerId (over T.hand (delete card))
+                 else modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
                -- we should get at most *one* effect to return
                return $ Right $ case (catMaybes results) of
                           [] -> Nothing
                           [result] -> Just result
 
+-- The input of this function is directly the output of `plays`, so you can
+-- chain these functions together easily. This automatically handles
+-- checking whether the playresult was a Right, and it there is a followup,
+-- and applies the followup action if there was something to followup on.
+--
 -- `with` might lead to more extra effects. And specifically, lets say you
 -- play throne room on throne room. Now you have TWO extra effects, i.e.
 -- you can choose a card to play twice TWICE.
 --
 -- Thats why `with` might return an array of extra effects, not just one.
-with :: T.Dominion (Either String (Maybe (T.PlayerId, T.CardEffect))) -> T.ExtraEffect -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
-info `with` extraEffect = do
-    result <- info
-    result `_with` extraEffect
-
--- just like `with`, except you can give it an array of info, and an
--- array of the extra effects you want to use with each info
-withMulti :: T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)])) -> [T.ExtraEffect] -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
-info `withMulti` extraEffects = do
-    results_ <- info
-    case results_ of
-      Right (Just results) -> do
-          allResults <- forM (zip results extraEffects) $ \(result, extraEffect) -> (Right (Just result)) `_with` extraEffect
-          return $ Right (Just (concat . catMaybes . rights $ allResults))
+with :: T.Dominion (T.PlayResult (Maybe T.Followup)) -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+result_ `with` followupAction = do
+    result <- result_
+    case result of
       Left str -> return $ Left str
-      _ -> return $ Right Nothing
+      Right Nothing -> return $ Right Nothing
+      Right (Just followup) -> followup `_with` followupAction
 
--- private method, use if you don't want to pass in a state monad into
--- `with`. This is what `with` uses behind the scenes.
-_with :: Either String (Maybe (T.PlayerId, T.CardEffect)) -> T.ExtraEffect -> T.Dominion (Either String (Maybe [(T.PlayerId, T.CardEffect)]))
-Left str `_with` _ = return $ Left str
-Right Nothing `_with` _ = return $ Right Nothing
+-- just like `with`, except you can give it an array of followup requests,
+-- and an array of followup actions.
+withMulti :: T.Dominion (T.PlayResult (Maybe [T.Followup])) -> [T.FollowupAction] -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+results_ `withMulti` followupActions = do
+    results <- results_
+    case results of
+      Left str -> return $ Left str
+      Right Nothing -> return $ Right Nothing
+      Right (Just followups) -> do
+          allResults <- mapM (uncurry _with) (zip followups followupActions)
+          return $ Right (Just (concat . catMaybes . rights $ allResults))
 
-Right (Just (playerId, T.PlayActionCard x)) `_with` (T.ThroneRoom card) = do
+-- this is what `with` and `withMulti` use behind the scenes. Those
+-- functions take care of un-binding the data and extracting it. This is
+-- much more simple...this is the core function that takes a followup and
+-- a followup action and applies that action.
+--
+-- of course, if you don't pass in the right followup action, then it will
+-- return an error (returns a playresult).
+_with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+(playerId, T.PlayActionCard x) `_with` (T.ThroneRoom card) = do
   player <- getPlayer playerId
   if not (card `elem` (player ^. T.hand))
     then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
