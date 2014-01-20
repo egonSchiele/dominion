@@ -115,4 +115,4 @@ type PlayResult a = Either String a
 -- can follow up using `with` and passing in the necessary data as the
 -- FollowupAction.
 type Followup = (PlayerId, CardEffect)
-data Option = Iterations Int | Log Bool
+data Option = Iterations Int | Log Bool | Cards [Card]

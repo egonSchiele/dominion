@@ -28,12 +28,14 @@ dominion = dominionWithOpts []
 
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO ()
 dominionWithOpts options list = do
-    actionCards <- deckShuffle CA.allCards
-    let players = map fst list
-        strategies = map snd list
-        iterations = findIteration options |||| 1000
-        verbose_ = findLog options |||| False
-        cards = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
+    actionCards_ <- deckShuffle CA.allCards
+    let players       = map fst list
+        strategies    = map snd list
+        iterations    = fromJust $ findIteration options <|> Just 1000
+        verbose_      = fromJust $ findLog options <|> Just False
+        requiredCards = take 10 . fromJust $ findCards options <|> Just []
+        actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
+        cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
 
     -- TODO we should cycle through all players to give each one an even

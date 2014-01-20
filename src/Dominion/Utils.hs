@@ -14,10 +14,6 @@ blue = highlight [Foreground Blue]
 cyan = highlight [Foreground Cyan]
 dim = highlight [Dim]
 
-(||||) :: Maybe a -> a -> a
-(Just a) |||| _ = a
-Nothing |||| b = b
-
 count :: Eq a => a -> [a] -> Int
 count x list = length $ filter (==x) list
 

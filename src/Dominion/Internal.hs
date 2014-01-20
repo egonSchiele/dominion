@@ -223,6 +223,11 @@ findLog [] = Nothing
 findLog ((T.Log x):xs) = Just x
 findLog (_:xs) = findLog xs
 
+findCards :: [T.Option] -> Maybe [T.Card]
+findCards [] = Nothing
+findCards ((T.Cards x):xs) = Just x
+findCards (_:xs) = findCards xs
+
 -- keep drawing a card until the provided function returns true.
 -- the function gets a list of the cards drawn so far,
 -- most recent first. Returns a list of all the cards drawn (these cards
