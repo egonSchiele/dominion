@@ -1,7 +1,3 @@
-- add more cards (all from original + seaside + intrigue)
 - add some kind of way to compete all strategies against each other at once we I can figure out which is the best one
-- command line arg parser, this is getting complicated.
 - avg # of VPs per strategy
 - graphs (one dot per iteration)
-- types everywhere! Come up with some good type synonyms.
-- I wish I didn't have to pass Strategies around everywhere!
