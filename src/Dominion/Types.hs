@@ -53,15 +53,21 @@ data Card = Card {
 } deriving (Show, Eq)
 makeLenses ''Card
 
+data ThiefTrashAction = TrashOnly Card | GainTrashedCard Card
+
 data FollowupAction = ThroneRoom Card
                     | Cellar [Card]
                     | Chancellor Bool
                     | Mine Card
-                    | Remodel Card
+                    | Remodel (Card, Card)
                     -- the first element is the list of cards you would discard for yourself,
                     -- the second is the lsit of cards you want others to discard
                     | Spy ([Card], [Card])
-                    | Thief ? -- tricky one
+                    -- gets a list of the treasure cards that the player
+                    -- had. You return either TrashOnly to have the player
+                    -- trash a card, or GainTrashedCard to gain the trashed
+                    -- card.
+                    | Thief ([Card] -> ThiefTrashAction)
 
 ---------------------------
 -- PLAYER

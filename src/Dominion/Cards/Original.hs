@@ -1,5 +1,6 @@
 module Dominion.Cards.Original where
 import Dominion.Types
+
 adventurer  = Card "Adventurer" 6 [Action] [AdventurerEffect]
 bureaucrat  = Card "Bureaucrat" 4 [Action, Attack] [BureaucratEffect]
 cellar      = Card "Cellar" 2 [Action] [PlusAction 1, CellarEffect]
@@ -25,3 +26,29 @@ witch       = Card "Witch" 5 [Action, Attack] [PlusCard 2, OthersGainCurse 1]
 woodcutter  = Card "Woodcutter" 3 [Action] [PlusCoin 2, PlusBuy 1]
 workshop    = Card "Workshop" 3 [Action] [GainCardUpto 4]
 gardens     = Card "Gardens" 4 [Victory] [GardensEffect]
+
+originalCards = [adventurer ,
+                 bureaucrat ,
+                 cellar     ,
+                 chancellor ,
+                 chapel     ,
+                 councilRoom,
+                 feast      ,
+                 festival   ,
+                 laboratory ,
+                 library    ,
+                 market     ,
+                 militia    ,
+                 mine       ,
+                 moat       ,
+                 moneylender,
+                 remodel    ,
+                 smithy     ,
+                 spy        ,
+                 thief      ,
+                 throneRoom ,
+                 village    ,
+                 witch      ,
+                 woodcutter ,
+                 workshop   ,
+                 gardens    ]

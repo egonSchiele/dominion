@@ -5,6 +5,7 @@ import Data.Random.Extras
 import Data.Random hiding (shuffle)
 import System.Random
 import Language.Haskell.HsColour.ANSI
+import Data.List
 
 red = highlight [Foreground Red]
 green = highlight [Foreground Green]
@@ -32,7 +33,9 @@ deckShuffle deck = do
     return shuffled
 
 -- times :: Monad m => Int -> m a -> [m b]
-times iterations block = forM [1..iterations] block
+times iterations block = forM_ [1..iterations] $ \_ -> block
 
 indices :: [a] -> [Int]
 indices arr = [0..(length arr - 1)]
+
+join = intercalate

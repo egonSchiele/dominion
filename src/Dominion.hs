@@ -5,14 +5,13 @@ import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Types (Option(..))
 import qualified Dominion.Cards as CA
-import Control.Monad
+import Control.Monad hiding (join)
 import Data.Maybe
-import Control.Monad.State hiding (state)
-import Control.Lens hiding (has)
+import Control.Monad.State hiding (state, join)
+import Control.Lens hiding (indices, has)
 import Control.Monad.IO.Class
 import Text.Printf
 import Data.List
-import Control.Monad
 import Dominion.Utils
 import Data.Either
 import Control.Applicative
@@ -29,30 +28,22 @@ dominion = dominionWithOpts []
 
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO ()
 dominionWithOpts options list = do
+    actionCards <- deckShuffle CA.allCards
     let players = map fst list
         strategies = map snd list
         iterations = findIteration options |||| 1000
         verbose_ = findLog options |||| False
+        cards = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
+    when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
+
+    -- TODO we should cycle through all players to give each one an even
+    -- chance at going first
     results <- forM [1..iterations] $ \i -> if even i
                                         then run (T.GameState players cards 1 verbose_) strategies
                                         else run (T.GameState (reverse players) cards 1 verbose_) strategies
     forM_ players $ \player -> do
       let name = player ^. T.playerName
       putStrLn $ printf "player %s won %d times" name (count name results)
-
-cards = concatMap pileOf [ CA.copper,
-                           CA.silver,
-                           CA.gold,
-                           CA.estate,
-                           CA.duchy,
-                           CA.province,
-                           CA.curse,
-                           CA.smithy,
-                           CA.village,
-                           CA.laboratory,
-                           CA.festival,
-                           CA.market,
-                           CA.woodcutter ]
 
 -- player buys a card
 buys :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
@@ -165,10 +156,86 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
                  [] -> Nothing
                  xs -> Just xs
 
-_ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
+(playerId, T.CellarEffect) `_with` (T.Cellar cards) = do
+  forM_ cards $ \card -> do
+    hasCard <- playerId `has` card
+    when hasCard $ do
+      playerId `discardsCard` card
+      [drawnCard] <- drawFromDeck playerId 1
+      log playerId $ printf "discarded a %s and got a %s" (card ^. T.name) (drawnCard ^. T.name)
+  return $ Right Nothing
 
--- see if a player has a card in his hand
-has :: T.PlayerId -> T.Card -> T.Dominion Bool
-has playerId card = do
-    player <- getPlayer playerId
-    return $ card `elem` (player ^. T.hand)
+(playerId, T.ChancellorEffect) `_with` (T.Chancellor moveDeck) = do
+  when moveDeck $ do
+    log playerId "Moving deck into the discard pile"
+    modifyPlayer playerId $ \p -> set T.deck [] $ over T.discard (++ (p ^. T.deck)) p
+  return $ Right Nothing
+
+(playerId, T.MineEffect) `_with` (T.Mine card) = do
+  hasCard <- playerId `has` card
+  if not hasCard
+    then return . Left $ printf "You don't have a %s in your hand!" (card ^. T.name)
+    else if (not . isTreasure $ card)
+           then return . Left $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
+           else if (card == CA.gold)
+                  then return . Left $ "can't upgrade gold!"
+                  else do
+                    newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
+                    case newCard_ of
+                      Nothing -> return . Left $ "Sorry, we are out of the card you could've upgraded to."
+                      Just newCard -> do
+                        playerId `trashesCard` card
+                        modifyPlayer playerId $ over T.hand (newCard:)
+                        log playerId $ printf "trashed a %s for a %s" (card ^. T.name) (newCard ^. T.name)
+                        return $ Right Nothing
+
+(playerId, T.RemodelEffect) `_with` (T.Remodel (toTrash, toGain)) = do
+  hasCard <- playerId `has` toTrash
+  if not hasCard
+    then return . Left $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
+    else if ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
+           then return . Left $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
+           else do
+             newCard_ <- getCard toGain
+             case newCard_ of
+               Nothing -> return . Left $ printf "Sorry, no more %s left" (toGain ^. T.name)
+               Just card -> do
+                 modifyPlayer playerId $ over T.discard (card:)
+                 return $ Right Nothing
+
+(playerId, T.SpyEffect) `_with` (T.Spy (myself, others)) = do
+  modifyPlayer playerId (discardTopCard myself)
+  modifyOtherPlayers playerId (discardTopCard others)
+  return $ Right Nothing
+
+(playerId, T.ThiefEffect) `_with` (T.Thief func) = do
+  state <- get
+  let players = (indices (state ^. T.players)) \\ [playerId]
+  forM_ players $ \pid -> do
+    player <- getPlayer pid
+    let topCards = take 2 (player ^. T.deck)
+        treasures = filter isTreasure topCards
+        discards = topCards \\ treasures
+    modifyPlayer pid $ over T.deck (drop 2)
+    if (null treasures)
+      then do
+        modifyPlayer pid $ over T.discard (++discards)
+        return . Left $ "Sorry, this player had no treasures."
+      else do
+        let action = func treasures
+        case action of
+          T.TrashOnly card -> do
+            let other = treasures \\ [card]
+            modifyPlayer pid $ over T.discard (++other)
+            return $ Right Nothing
+          T.GainTrashedCard card -> do
+            let other = treasures \\ [card]
+            modifyPlayer pid $ over T.discard (++other)
+            if (card `elem` treasures)
+              then do
+                modifyPlayer playerId $ over T.discard (card:)
+                return $ Right Nothing
+              else return $ Left "That card wasn't one of the treasures you could trash!"
+  return $ Right Nothing
+
+_ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."

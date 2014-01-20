@@ -3,13 +3,19 @@ import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Utils
 import Text.Printf
-import Control.Lens hiding (indices)
+import Control.Lens hiding (indices, has)
 import Control.Monad.State hiding (state)
 import Data.List
 import Data.Ord
 import qualified Dominion.Cards as CA
 import Control.Arrow
 import System.IO.Unsafe
+
+-- see if a player has a card in his hand
+has :: T.PlayerId -> T.Card -> T.Dominion Bool
+has playerId card = do
+    player <- getPlayer playerId
+    return $ card `elem` (player ^. T.hand)
 
 coinValue :: T.Card -> Int
 coinValue card = sum $ map effect (card ^. T.effects)
@@ -21,6 +27,22 @@ handValue :: T.PlayerId -> T.Dominion Int
 handValue playerId = do
     player <- getPlayer playerId
     return $ sum (map coinValue (player ^. T.hand)) + (player ^. T.extraMoney)
+
+-- check if you are out of a particular card
+pileEmpty :: T.Card -> T.Dominion Bool
+pileEmpty card = do
+    state <- get
+    return $ card `elem` (state ^. T.cards)
+
+-- get a card. Returns the gained card, or Nothing if that pile is empty.
+getCard :: T.Card -> T.Dominion (Maybe T.Card)
+getCard card = do
+    empty <- pileEmpty card
+    if empty
+      then return Nothing
+      else do
+        modify $ over T.cards (delete card)
+        return $ Just card
 
 log :: T.PlayerId -> String -> T.Dominion ()
 log playerId str = do
@@ -67,7 +89,7 @@ modifyPlayer playerId func = modify $ over (T.players . element playerId) func
 modifyOtherPlayers :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
 modifyOtherPlayers playerId func = do
     state <- get
-    players = (indices (state ^. T.players)) \\ [playerId]
+    let players = (indices (state ^. T.players)) \\ [playerId]
     forM_ players $ \pid -> modify $ over (T.players . element pid) func
 
 setupForTurn playerId = do
@@ -157,6 +179,7 @@ shuffleDeck_ player = set T.discard [] $ set T.deck newDeck player
 -- returns the drawn cards and adds them to the player's hand
 drawFromFull :: T.PlayerId -> Int -> T.Dominion [T.Card]
 drawFromFull playerId numCards = do
+    player <- getPlayer playerId
     let drawnCards = (take numCards (player ^. T.deck))
     modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
     return drawnCards
@@ -208,9 +231,9 @@ drawsUntil :: T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
 drawsUntil = drawsUntil_ []
 
 -- internal use for drawsUntil
-drawsUntil :: [T.Card] -> T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
+drawsUntil_ :: [T.Card] -> T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
 drawsUntil_ alreadyDrawn playerId func = do
-    drawnCards = drawFromDeck playerId 1
+    drawnCards <- drawFromDeck playerId 1
     let cards = drawnCards ++ alreadyDrawn
     stopDrawing <- func cards
     if stopDrawing
@@ -230,20 +253,29 @@ playerId `discardsCard` card = modifyPlayer playerId $ over T.hand (delete card)
 returnsCard :: T.PlayerId -> T.Card -> T.Dominion ()
 playerId `returnsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
 
+-- if the top card in the player's deck is one of the cards
+-- listed in the provided array, then discard that card (used with spy)
+discardTopCard :: [T.Card] -> T.Player -> T.Player
+discardTopCard cards player = if (topCard `elem` cards)
+                                then set T.deck (tail deck) . over T.discard (topCard:) $ player
+                                else player
+    where topCard = head $ player ^. T.deck
+          deck = player ^. T.deck
+
 -- if this player has a victory card in his/her hand,
 -- it is put on top of their deck *unless* they have a moat in their hand
 returnVPCard :: T.Player -> T.Player
-let hand = player ^. T.hand in
-    victoryCards = filter isVictory hand
-    card = head victoryCards
-returnVPCard player = if (CA.moat `elem` hand || null victoryCards)
+returnVPCard player = let hand = player ^. T.hand
+                          victoryCards = filter isVictory hand
+                          card = head victoryCards
+                      in if (CA.moat `elem` hand || null victoryCards)
                           then player
                           else over T.hand (delete card) $ over T.deck (card:) player
 
 -- TODO how do they choose what to discard??
 -- Right now I'm just choosing to discard the least expensive
 discardsTo :: T.Player -> Int -> T.Player
-player `discardsTo` x = set T.hand toKeep . over T.discard (++ toDiscard)
+player `discardsTo` x = set T.hand toKeep . over T.discard (++ toDiscard) $ player
     where hand = sortBy (comparing T._cost) $ player ^. T.hand
           toDiscard = take (length hand - x) hand
           toKeep = hand \\ toDiscard
@@ -278,17 +310,20 @@ playerId `usesEffect` effect@(T.PlayActionCard x) = do
 
 playerId `usesEffect` (T.AdventurerEffect) = do
     log playerId "finding the next two treasures from your deck..."
-    drawnCards <- playerId `drawsUntil` (\cards -> (countBy isTreasure cards) == 2)
+    drawnCards <- playerId `drawsUntil` (\cards -> return $ (countBy isTreasure cards) == 2)
     -- the cards that weren't treasures need to be discarded
     forM_ (filter (not . isTreasure) drawnCards) $ \card -> playerId `discardsCard` card
     return Nothing
 
 playerId `usesEffect` (T.BureaucratEffect) = do
-    let card = CA.silver
-    modifyPlayer playerId $ over T.deck (card:)
-    modify $ over T.cards (delete card)
-    log playerId "+ silver"
-    modifyOtherPlayers returnVPCard
+    card_ <- getCard CA.silver
+    case card_ of
+      Nothing -> return ()
+      Just card -> do
+        log playerId "+ silver"
+        modifyPlayer playerId $ over T.deck (card:)
+    modifyOtherPlayers playerId returnVPCard
+    return Nothing
 
 playerId `usesEffect` effect@(T.CellarEffect) = do
     return $ Just (playerId, effect)
@@ -317,9 +352,9 @@ playerId `usesEffect` effect@(T.GainCardUpto x) = do
 -- and choose the action card they want?
 playerId `usesEffect` effect@(T.LibraryEffect) = do
     log playerId ("Drawing to 7 cards...")
-    playerId `drawsUntil` (\_ -> do
-                             player <- getPlayer
-                             length (player ^. T.hand) == 7)
+    drawsUntil playerId $ \_ -> do
+                 player <- getPlayer playerId
+                 return $ length (player ^. T.hand) == 7
     return Nothing
 
 -- NOTE: one side effect of this + council room is:
@@ -329,17 +364,18 @@ playerId `usesEffect` effect@(T.LibraryEffect) = do
 -- followed by a militia. I need to codify that properly.
 playerId `usesEffect` effect@(T.OthersDiscardTo x) = do
     log playerId ("Every other player discards down to " ++ (show x) ++ " cards.")
-    modifyOtherPlayers (\p -> p `discardsTo` x)
+    modifyOtherPlayers playerId (\p -> p `discardsTo` x)
     return Nothing
 
 playerId `usesEffect` effect@(T.MineEffect) = do
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.MoneylenderEffect) = do
-    when (playerId `has` CA.copper) $ do
+    hasCard <- playerId `has` CA.copper
+    when hasCard $ do
       log playerId ("Trashing a copper. +3 coin")
       playerId `trashesCard` CA.copper
-      modifyPlayer $ over (T.extraMoney) (+3)
+      modifyPlayer playerId $ over (T.extraMoney) (+3)
     return Nothing
 
 playerId `usesEffect` effect@(T.RemodelEffect) = do
@@ -353,11 +389,17 @@ playerId `usesEffect` effect@(T.ThiefEffect) = do
 
 playerId `usesEffect` effect@(T.OthersGainCurse x) = do
     log playerId ("All other players gain " ++ (show x) ++ " curses.")
-    modifyOtherPlayers (over T.discard (card:))
-    state <- get
-    times (length (state ^. T.players) - 1) $ do
-      modify $ over T.cards (delete card)
-    return Nothing
+    let card = CA.curse
+    empty <- pileEmpty card
+    if empty
+      then return Nothing
+      else do
+        modifyOtherPlayers playerId (over T.discard (card:))
+        state <- get
+        times (length (state ^. T.players) - 1) $ do
+          modify $ over T.cards (delete card)
+          return ()
+        return Nothing
 
 -- only counted at the end of the game.
 playerId `usesEffect` effect@(T.GardensEffect) = return Nothing

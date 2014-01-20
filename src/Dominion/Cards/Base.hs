@@ -8,3 +8,6 @@ estate   = Card "Estate" 2 [Victory] [VPValue 1]
 duchy    = Card "Duchy" 5 [Victory] [VPValue 3]
 province = Card "Province" 8 [Victory] [VPValue 6]
 curse    = Card "Curse" 0 [Victory] [VPValue (-1)]
+
+treasureCards = [copper, silver, gold]
+victoryCards = [estate, duchy, province, curse]
