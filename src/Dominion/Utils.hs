@@ -20,6 +20,8 @@ Nothing |||| b = b
 count :: Eq a => a -> [a] -> Int
 count x list = length $ filter (==x) list
 
+countBy func list = length $ filter func list
+
 for = flip map
 
 deckShuffle :: [a] -> IO [a]

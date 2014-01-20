@@ -37,16 +37,18 @@ log_ str = do
     state <- get
     when (state ^. T.verbose) $ liftIO . putStrLn $ str
 
--- TODO check for 3 piles gone
 gameOver cards
     | not (CA.province `elem` cards) = True
+    -- (copper, silver, gold) + (curse, estate, duchy, province) + 10
+    -- action cards minus 3. Any three piles gone = game over.
+    | length (nub cards) <= (3 + 3 + 10 - 3) = True
     | otherwise = False
 
 -- given a player id and a number of cards to draw, draws that many cards
 -- from the deck, shuffling if necessary.
 -- TODO if the deck doesn't have enough cards, we should draw the cards in
 -- the deck before shuffling and drawing the rest.
-drawFromDeck :: T.PlayerId -> Int -> T.Dominion ()
+drawFromDeck :: T.PlayerId -> Int -> T.Dominion [T.Card]
 drawFromDeck playerId numCards = do
     player <- getPlayer playerId
     let deck = player ^. T.deck
@@ -59,24 +61,39 @@ drawFromDeck playerId numCards = do
 -- takes a player id and a function.
 -- That function takes a player and returns a modified player.
 modifyPlayer :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
-modifyPlayer playerId func = modify $ \state -> over (T.players . element playerId) func $ state
+modifyPlayer playerId func = modify $ over (T.players . element playerId) func
+
+-- modifies every player *except* the one specified with the player id
+modifyOtherPlayers :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
+modifyOtherPlayers playerId func = do
+    state <- get
+    players = (indices (state ^. T.players)) \\ [playerId]
+    forM_ players $ \pid -> modify $ over (T.players . element pid) func
+
+setupForTurn playerId = do
+    drawFromDeck playerId 5
+    modifyPlayer playerId $ set T.actions 1 . set T.buys 1 . set T.extraMoney 0
 
 -- player plays given strategy
 playTurn :: T.PlayerId -> T.Strategy -> T.Dominion ()
 playTurn playerId strategy = do
-    drawFromDeck playerId 5
-    modifyPlayer playerId $ \player -> set T.actions 1 $
-                                       set T.buys 1 $
-                                       set T.extraMoney 0 player
     player <- getPlayer playerId
     log playerId $ "player's hand has: " ++ (show . map T._name $ player ^. T.hand)
     strategy playerId
     discardHand playerId
+    -- we draw from deck *after* to set up the next hand NOW,
+    -- instead of calling this at the beginning of the function.
+    -- The reason is, if someone else plays a militia, or a council room,
+    -- these players need to be able to modify their deck accordingly
+    -- even if its not their turn.
+    setupForTurn playerId
 
 game :: [T.Strategy] -> T.Dominion ()
 game strategies = do
    state <- get
-   forM_ (zip (indices $ state ^. T.players) strategies) (uncurry playTurn)
+   let ids = indices $ state ^. T.players
+   forM_ ids setupForTurn
+   forM_ (zip ids strategies) (uncurry playTurn)
 
 run :: T.GameState -> [T.Strategy] -> IO String
 run state strategies = do
@@ -86,10 +103,16 @@ run state strategies = do
                 then returnResults newState
                 else run (over T.round (+1) newState) strategies
 
+isAction card = T.Action `elem` (card ^. T.cardType)
+isAttack card = T.Attack `elem` (card ^. T.cardType)
+isReaction card = T.Reaction `elem` (card ^. T.cardType)
+isTreasure card = T.Treasure `elem` (card ^. T.cardType)
+isVictory card = T.Victory `elem` (card ^. T.cardType)
+
 countPoints :: T.Player -> Int
 countPoints player = sum $ map countValue effects
     where cards        = player ^. T.deck ++ player ^. T.discard ++ player ^. T.hand
-          victoryCards = filter (\card -> T.Victory `elem` (card ^. T.cardType)) cards
+          victoryCards = filter isVictory cards
           effects      = concatMap T._effects victoryCards
           countValue (T.VPValue x) = x
           countValue (T.GardensEffect) = length cards `div` 10
@@ -131,10 +154,12 @@ shuffleDeck_ player = set T.discard [] $ set T.deck newDeck player
 -- private method that gets called from `drawFromDeck`
 -- only gets called when we know that the player has
 -- at least 5 cards in his/her deck
-drawFromFull :: T.PlayerId -> Int -> T.Dominion ()
-drawFromFull playerId numCards = modifyPlayer playerId $ \player -> 
-                            over T.deck (drop numCards) $ 
-                              over T.hand (++ (take numCards (player ^. T.deck))) player
+-- returns the drawn cards and adds them to the player's hand
+drawFromFull :: T.PlayerId -> Int -> T.Dominion [T.Card]
+drawFromFull playerId numCards = do
+    let drawnCards = (take numCards (player ^. T.deck))
+    modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
+    return drawnCards
 
 -- validate that this player is able to purchase this card
 validateBuy :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
@@ -154,7 +179,7 @@ validateBuy playerId card = do
 validatePlay :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
 validatePlay playerId card = do
     player <- getPlayer playerId
-    if not (T.Action `elem` (card ^. T.cardType))
+    if not (isAction card)
       then return . Left $ printf "%s is not an action card" (card ^. T.name)
       else if (player ^. T.actions) < 1
              then return . Left $ "You don't have any actions remaining!"
@@ -175,6 +200,23 @@ findLog [] = Nothing
 findLog ((T.Log x):xs) = Just x
 findLog (_:xs) = findLog xs
 
+-- keep drawing a card until the provided function returns true.
+-- the function gets a list of the cards drawn so far,
+-- most recent first. Returns a list of all the cards drawn (these cards
+-- are also in the player's hand)
+drawsUntil :: T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
+drawsUntil = drawsUntil_ []
+
+-- internal use for drawsUntil
+drawsUntil :: [T.Card] -> T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
+drawsUntil_ alreadyDrawn playerId func = do
+    drawnCards = drawFromDeck playerId 1
+    let cards = drawnCards ++ alreadyDrawn
+    stopDrawing <- func cards
+    if stopDrawing
+      then return cards
+      else drawsUntil_ cards playerId func
+
 trashThisCard :: T.Card -> Bool
 trashThisCard card = T.TrashThisCard `elem` (card ^. T.effects)
 
@@ -183,6 +225,28 @@ playerId `trashesCard` card = modifyPlayer playerId (over T.hand (delete card))
 
 discardsCard :: T.PlayerId -> T.Card -> T.Dominion ()
 playerId `discardsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+
+-- return to the top of their deck
+returnsCard :: T.PlayerId -> T.Card -> T.Dominion ()
+playerId `returnsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
+
+-- if this player has a victory card in his/her hand,
+-- it is put on top of their deck *unless* they have a moat in their hand
+returnVPCard :: T.Player -> T.Player
+let hand = player ^. T.hand in
+    victoryCards = filter isVictory hand
+    card = head victoryCards
+returnVPCard player = if (CA.moat `elem` hand || null victoryCards)
+                          then player
+                          else over T.hand (delete card) $ over T.deck (card:) player
+
+-- TODO how do they choose what to discard??
+-- Right now I'm just choosing to discard the least expensive
+discardsTo :: T.Player -> Int -> T.Player
+player `discardsTo` x = set T.hand toKeep . over T.discard (++ toDiscard)
+    where hand = sortBy (comparing T._cost) $ player ^. T.hand
+          toDiscard = take (length hand - x) hand
+          toKeep = hand \\ toDiscard
 
 -- used internally by the `plays` function.
 -- Returns Nothing if the effect doesnt need anything else,
@@ -210,13 +274,13 @@ playerId `usesEffect` (T.PlusCard x) = do
     return Nothing
 
 playerId `usesEffect` effect@(T.PlayActionCard x) = do
-    log playerId ("choose an action card and play it " ++ (show x) ++ " times")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` (T.AdventurerEffect) = do
     log playerId "finding the next two treasures from your deck..."
-    -- TODO implement this
-    drawUntil (\list -> countBy treasures list == 2)
+    drawnCards <- playerId `drawsUntil` (\cards -> (countBy isTreasure cards) == 2)
+    -- the cards that weren't treasures need to be discarded
+    forM_ (filter (not . isTreasure) drawnCards) $ \card -> playerId `discardsCard` card
     return Nothing
 
 playerId `usesEffect` (T.BureaucratEffect) = do
@@ -224,15 +288,12 @@ playerId `usesEffect` (T.BureaucratEffect) = do
     modifyPlayer playerId $ over T.deck (card:)
     modify $ over T.cards (delete card)
     log playerId "+ silver"
-    -- TODO other players show victory cards and
-    -- put on top of their deck, OR show moats
+    modifyOtherPlayers returnVPCard
 
 playerId `usesEffect` effect@(T.CellarEffect) = do
-    log playerId ("Discard any number of cards. Draw that number from your deck.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.ChancellorEffect) = do
-    log playerId ("You may immediately move your deck into the discard pile.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.TrashCards x) = do
@@ -241,16 +302,24 @@ playerId `usesEffect` effect@(T.TrashCards x) = do
 
 playerId `usesEffect` effect@(T.OthersPlusCard x) = do
     log playerId ("Every other player draws " ++ (show x) ++ " card.")
-    -- TODO draw one card for each player.
+    state <- get
+    let players = (indices (state ^. T.players)) \\ [playerId]
+    forM_ players $ \pid -> drawFromDeck pid 1
     return Nothing
 
 playerId `usesEffect` effect@(T.GainCardUpto x) = do
     log playerId ("Gain a card costing up to " ++ (show x) ++ " coins.")
     return $ Just (playerId, effect)
 
+-- TODO this doesn't set aside any action cards.
+-- How do I implement the logic for choosing that?
+-- Basically it allows the player to go through
+-- and choose the action card they want?
 playerId `usesEffect` effect@(T.LibraryEffect) = do
-    log playerId ("Draw until you have 7 cards in hand. You may set aside any Action cards drawn this way, as you draw them; discard the set aside cards after you finish drawing.")
-    -- TODO draw to 7. Discard action cards automatically?
+    log playerId ("Drawing to 7 cards...")
+    playerId `drawsUntil` (\_ -> do
+                             player <- getPlayer
+                             length (player ^. T.hand) == 7)
     return Nothing
 
 -- NOTE: one side effect of this + council room is:
@@ -260,11 +329,10 @@ playerId `usesEffect` effect@(T.LibraryEffect) = do
 -- followed by a militia. I need to codify that properly.
 playerId `usesEffect` effect@(T.OthersDiscardTo x) = do
     log playerId ("Every other player discards down to " ++ (show x) ++ " cards.")
-    -- TODO discard cards for each player.
+    modifyOtherPlayers (\p -> p `discardsTo` x)
     return Nothing
 
 playerId `usesEffect` effect@(T.MineEffect) = do
-    log playerId ("Trash a Treasure card from your hand. Gain a Treasure card costing up to 3 Coins more; put it into your hand.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.MoneylenderEffect) = do
@@ -275,20 +343,20 @@ playerId `usesEffect` effect@(T.MoneylenderEffect) = do
     return Nothing
 
 playerId `usesEffect` effect@(T.RemodelEffect) = do
-    log playerId ("Trash a card from your hand. Gain a card costing up to 2 Coins more than the trashed card.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.SpyEffect) = do
-    log playerId ("Each player (including you) reveals the top card of his deck and either discards it or puts it back, your choice.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.ThiefEffect) = do
-    log playerId ("Each other player reveals the top 2 cards of his deck. If they revealed any Treasure cards, they trash one of them that you choose. You may gain any or all of these trashed cards. They discard the other revealed cards.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.OthersGainCurse x) = do
     log playerId ("All other players gain " ++ (show x) ++ " curses.")
-    -- TODO others gain a curse
+    modifyOtherPlayers (over T.discard (card:))
+    state <- get
+    times (length (state ^. T.players) - 1) $ do
+      modify $ over T.cards (delete card)
     return Nothing
 
 -- only counted at the end of the game.
