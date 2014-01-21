@@ -4,7 +4,18 @@ Dominion Simulator. Allows you to test competing strategies and see what works b
 
 Usage:
 
-    ./dominion [# of iterations -- default 500]
+```haskell
+import Dominion
+import Dominion.Strategies
+
+main = dominion ["adit" `uses` bigMoney, "maggie" `uses` bigMoneySmithy]
+```
+
+Or you can pass in options:
+
+```haskell
+main = dominionWithOpts [Log True, Iterations 1] ["adit" `uses` bigMoney, "maggie" `uses` bigMoneySmithy]
+```
 
 ## Strategies
 
@@ -20,10 +31,6 @@ bigMoney playerId = playerId `buysByPreference` [province,
 
 The big money strategy is simple: buy the most expensive victory or treasure card you can, and repeat.
 
-You can give `buysByPreference` a list of all the cards you want to buy, in the order you want to buy them in. `buysByPreference` will then buy as many cards as it can.
-
-Here's another example: big money + smithy:
-
 ```haskell
 bigMoneySmithy playerId = do
     playerId `plays` smithy
@@ -35,7 +42,7 @@ bigMoneySmithy playerId = do
                                  copper]
 ```
 
-It's just like big money, except now the player buys up smithys too. And the player plays a smithy whenever possible (`plays` will play the action card if it can). So now we can compare Big Money vs Big Money + Smithy. And the results are:
+It's just like big money, except now the player buys up smithys too. And the player plays a smithy whenever possible. So now we can compare Big Money vs Big Money + Smithy. And the results are:
 
 Out of 5000 games:
 
@@ -49,9 +56,9 @@ Just as a control, lets use the same strategy with both players:
 
 So clearly, adding the smithy to big money makes a big difference!
 
-### Extra effects
+### Followup actions
 
-Some action cards have an extra effect. For example, if you use throne room, you can pick another card and play it twice. Here's how that looks:
+Some action cards have a followup action. For example, if you use throne room, you can pick another card and play it twice. Here's how that looks:
 
 ```haskell
 throneRoom playerId = do
@@ -66,13 +73,4 @@ multiThroneRoom playerId = do
                                                                             ThroneRoom market]
 ```
 
-`withMulti` is the same as with, except you specify an array of extra effects you want to do. In this case, we play a throne room on a throne room, so now we can pick an action card to play twice, twice. We choose to play a market both times (assuming we have two markets in our hand).
-
-You can also make sure the player has a market first:
-
-```haskell
-throneRoom playerId = do
-    player <- getPlayer playerId
-    when player `has` market $ do
-      playerId `plays` throneRoom `with` (ThroneRoom market)
-```
+See the full documentation on [Hackage](http://hackage.haskell.org/package/dominion).
