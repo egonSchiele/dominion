@@ -7,4 +7,5 @@ module Dominion.Cards (
 import Dominion.Cards.Base
 import Dominion.Cards.Original
 
+-- | All action cards available for use.
 allCards = originalCards

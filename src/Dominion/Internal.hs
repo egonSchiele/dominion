@@ -1,4 +1,11 @@
-module Dominion.Internal where
+module Dominion.Internal (
+  
+  -- | Note: You shouldn't need to import this module...the 
+  -- interesting functions are re-exported by the Dominion module.
+  --
+  -- Use any other functions in here at your own risk.
+  module Dominion.Internal
+) where
 import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Utils
@@ -11,30 +18,36 @@ import qualified Dominion.Cards as CA
 import Control.Arrow
 import System.IO.Unsafe
 
--- see if a player has a card in his hand
+-- | see if a player has a card in his hand.
+--
+-- > hasCard <- playerId `has` chapel
 has :: T.PlayerId -> T.Card -> T.Dominion Bool
 has playerId card = do
     player <- getPlayer playerId
     return $ card `elem` (player ^. T.hand)
 
+-- | What this card is worth in money.
 coinValue :: T.Card -> Int
 coinValue card = sum $ map effect (card ^. T.effects)
           where effect (T.CoinValue num) = num
                 effect _ = 0
 
--- amount of money this player's hand is worth
+-- | How much money this player's hand is worth (also counts any money you
+-- get from action cards, like +1 from market).
 handValue :: T.PlayerId -> T.Dominion Int
 handValue playerId = do
     player <- getPlayer playerId
     return $ sum (map coinValue (player ^. T.hand)) + (player ^. T.extraMoney)
 
--- check if you are out of a particular card
+-- | Check if this card's pile is empty.
 pileEmpty :: T.Card -> T.Dominion Bool
 pileEmpty card = do
     state <- get
     return $ card `elem` (state ^. T.cards)
 
--- get a card. Returns the gained card, or Nothing if that pile is empty.
+-- | Returns the card, or Nothing if that pile is empty.
+-- Useful because it automatically checks whether the pile is empty, and
+-- modifies state to subtract a card from the pile correctly.
 getCard :: T.Card -> T.Dominion (Maybe T.Card)
 getCard card = do
     empty <- pileEmpty card
@@ -44,6 +57,8 @@ getCard card = do
         modify $ over T.cards (delete card)
         return $ Just card
 
+-- | Convenience function. Prints out a line if verbose, AND prints out
+-- info about the related player...name, money, # of buys, # of actions.
 log :: T.PlayerId -> String -> T.Dominion ()
 log playerId str = do
     player <- getPlayer playerId
@@ -54,6 +69,7 @@ log playerId str = do
         statusLine = printf "[player %s, name: %s, money: %s, buys: %s, actions: %s]" (yellow . show $ playerId) (yellow name) (green . show $ money) (green . show $ buys) (red . show $ actions)
     log_ $ statusLine ++ ": " ++ (green str)
 
+-- | Like `log` but doesn't print out info about a player
 log_ :: String -> T.Dominion ()
 log_ str = do
     state <- get
@@ -66,7 +82,7 @@ gameOver cards
     | length (nub cards) <= (3 + 3 + 10 - 3) = True
     | otherwise = False
 
--- given a player id and a number of cards to draw, draws that many cards
+-- | Given a player id and a number of cards to draw, draws that many cards
 -- from the deck, shuffling if necessary.
 -- TODO if the deck doesn't have enough cards, we should draw the cards in
 -- the deck before shuffling and drawing the rest.
@@ -80,23 +96,23 @@ drawFromDeck playerId numCards = do
         shuffleDeck playerId
         drawFromFull playerId numCards
 
--- takes a player id and a function.
--- That function takes a player and returns a modified player.
+-- | Like `modify` for the `State` monad, but works on players.
+-- Takes a player id and a function that modifies the player.
 modifyPlayer :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
 modifyPlayer playerId func = modify $ over (T.players . element playerId) func
 
--- modifies every player *except* the one specified with the player id
+-- | Like `modifyPlayer`, but modifies every player *except* the one specified with the player id.
 modifyOtherPlayers :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
 modifyOtherPlayers playerId func = do
     state <- get
     let players = (indices (state ^. T.players)) \\ [playerId]
     forM_ players $ \pid -> modify $ over (T.players . element pid) func
 
+setupForTurn :: T.PlayerId -> T.Dominion ()
 setupForTurn playerId = do
     drawFromDeck playerId 5
     modifyPlayer playerId $ set T.actions 1 . set T.buys 1 . set T.extraMoney 0
 
--- player plays given strategy
 playTurn :: T.PlayerId -> T.Strategy -> T.Dominion ()
 playTurn playerId strategy = do
     player <- getPlayer playerId
@@ -125,6 +141,15 @@ run state strategies = do
                 then returnResults newState
                 else run (over T.round (+1) newState) strategies
 
+returnResults :: T.GameState -> IO String
+returnResults state = do
+    let results = map (id &&& countPoints) (state ^. T.players)
+    when (state ^. T.verbose) $ do
+      putStrLn "Game Over!"
+      forM_ results $ \(player, points) -> do
+        putStrLn $ printf "player %s got %d points" (player ^. T.playerName) points
+    return $ view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
+
 isAction card = T.Action `elem` (card ^. T.cardType)
 isAttack card = T.Attack `elem` (card ^. T.cardType)
 isReaction card = T.Reaction `elem` (card ^. T.cardType)
@@ -140,29 +165,34 @@ countPoints player = sum $ map countValue effects
           countValue (T.GardensEffect) = length cards `div` 10
           countValue _ = 0
 
--- get player from game state
+-- | Get player from game state specified by this id.
+-- This is useful sometimes:
+--
+-- > import qualified Dominion.Types as T
+-- > import Control.Lens
+-- >
+-- > player <- getPlayer playerId
+-- >
+-- > -- How many buys does this player have?
+-- > player ^. T.buys
+-- >
+-- > -- How many actions does this player have?
+-- > player ^. T.actions
 getPlayer :: T.PlayerId -> T.Dominion T.Player
 getPlayer playerId = do
     state <- get
     return $ (state ^. T.players) !! playerId
 
-returnResults :: T.GameState -> IO String
-returnResults state = do
-    let results = map (id &&& countPoints) (state ^. T.players)
-    when (state ^. T.verbose) $ do
-      putStrLn "Game Over!"
-      forM_ results $ \(player, points) -> do
-        putStrLn $ printf "player %s got %d points" (player ^. T.playerName) points
-    return $ view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
-
+-- | Convenience function. @ 4 \`cardsOf\` estate @ is the same as @ take 4 . repeat $ estate @
 cardsOf count card = take count $ repeat card
+
 pileOf card = 10 `cardsOf` card
  
 eitherToBool :: (Either String ()) -> Bool
 eitherToBool (Left _) = False
 eitherToBool (Right _) = True
 
--- move this players discards + hand into his deck and shuffle the deck
+-- | Move this players discards + hand into his deck and shuffle the deck.
 shuffleDeck :: T.PlayerId -> T.Dominion ()
 shuffleDeck playerId = modifyPlayer playerId shuffleDeck_
 
@@ -184,8 +214,10 @@ drawFromFull playerId numCards = do
     modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
     return drawnCards
 
--- validate that this player is able to purchase this card
-validateBuy :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
+-- | Check that this player is able to purchase this card. Returns
+-- a `Right` if they can purchase the card, otherwise returns a `Left` with
+-- the reason why they can't purchase it.
+validateBuy :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
 validateBuy playerId card = do
     money <- handValue playerId
     state <- get
@@ -198,8 +230,10 @@ validateBuy playerId card = do
                     then return . Left $ "You don't have any buys remaining!"
                     else return $ Right ()
 
--- check if a player can play a card
-validatePlay :: T.PlayerId -> T.Card -> T.Dominion (Either String ())
+-- | Check that this player is able to play this card. Returns
+-- a `Right` if they can play the card, otherwise returns a `Left` with
+-- the reason why they can't play it.
+validatePlay :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
 validatePlay playerId card = do
     player <- getPlayer playerId
     if not (isAction card)
@@ -210,28 +244,32 @@ validatePlay playerId card = do
                     then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
                     else return $ Right ()
 
+-- Discard this player's hand.
 discardHand :: T.PlayerId -> T.Dominion ()
 discardHand playerId = modifyPlayer playerId $ \player -> set T.hand [] $ over T.discard (++ (player ^. T.hand)) player
 
+-- for parsing options
 findIteration :: [T.Option] -> Maybe Int
 findIteration [] = Nothing
 findIteration ((T.Iterations x):xs) = Just x
 findIteration (_:xs) = findIteration xs
 
+-- for parsing options
 findLog :: [T.Option] -> Maybe Bool
 findLog [] = Nothing
 findLog ((T.Log x):xs) = Just x
 findLog (_:xs) = findLog xs
 
+-- for parsing options
 findCards :: [T.Option] -> Maybe [T.Card]
 findCards [] = Nothing
 findCards ((T.Cards x):xs) = Just x
 findCards (_:xs) = findCards xs
 
--- keep drawing a card until the provided function returns true.
--- the function gets a list of the cards drawn so far,
+-- | Keep drawing a card until the provided function returns true.
+-- The function gets a list of the cards drawn so far,
 -- most recent first. Returns a list of all the cards drawn (these cards
--- are also in the player's hand)
+-- are also placed into the player's hand)
 drawsUntil :: T.PlayerId -> ([T.Card] -> T.Dominion Bool) -> T.Dominion [T.Card]
 drawsUntil = drawsUntil_ []
 
@@ -245,21 +283,33 @@ drawsUntil_ alreadyDrawn playerId func = do
       then return cards
       else drawsUntil_ cards playerId func
 
+-- Does this card say you trash it when you play it?
 trashThisCard :: T.Card -> Bool
 trashThisCard card = T.TrashThisCard `elem` (card ^. T.effects)
 
+-- | Player trashes the given card.
 trashesCard :: T.PlayerId -> T.Card -> T.Dominion ()
-playerId `trashesCard` card = modifyPlayer playerId (over T.hand (delete card))
+playerId `trashesCard` card = do
+  hasCard <- playerId `has` card
+  when hasCard $ do
+    modifyPlayer playerId (over T.hand (delete card))
 
+-- | Player discards the given card.
 discardsCard :: T.PlayerId -> T.Card -> T.Dominion ()
-playerId `discardsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+playerId `discardsCard` card = do
+  hasCard <- playerId `has` card
+  when hasCard $ do
+    modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
 
--- return to the top of their deck
+-- Player returns the given card to the top of their deck.
 returnsCard :: T.PlayerId -> T.Card -> T.Dominion ()
-playerId `returnsCard` card = modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
+playerId `returnsCard` card = do
+  hasCard <- playerId `has` card
+  when hasCard $ do
+    modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
 
--- if the top card in the player's deck is one of the cards
--- listed in the provided array, then discard that card (used with spy)
+-- If the top card in the player's deck is one of the cards
+-- listed in the provided array, then discard that card (used with spy).
 discardTopCard :: [T.Card] -> T.Player -> T.Player
 discardTopCard cards player = if (topCard `elem` cards)
                                 then set T.deck (tail deck) . over T.discard (topCard:) $ player
@@ -267,8 +317,9 @@ discardTopCard cards player = if (topCard `elem` cards)
     where topCard = head $ player ^. T.deck
           deck = player ^. T.deck
 
--- if this player has a victory card in his/her hand,
--- it is put on top of their deck *unless* they have a moat in their hand
+-- If this player has a victory card in his/her hand,
+-- it is put on top of their deck *unless* they have a moat in their hand.
+-- Used with militia.
 returnVPCard :: T.Player -> T.Player
 returnVPCard player = let hand = player ^. T.hand
                           victoryCards = filter isVictory hand
@@ -278,18 +329,19 @@ returnVPCard player = let hand = player ^. T.hand
                           else over T.hand (delete card) $ over T.deck (card:) player
 
 -- TODO how do they choose what to discard??
--- Right now I'm just choosing to discard the least expensive
+-- Right now I'm just choosing to discard the least expensive.
+-- | Player discards down to x cards.
 discardsTo :: T.Player -> Int -> T.Player
 player `discardsTo` x = set T.hand toKeep . over T.discard (++ toDiscard) $ player
     where hand = sortBy (comparing T._cost) $ player ^. T.hand
           toDiscard = take (length hand - x) hand
           toKeep = hand \\ toDiscard
 
--- used internally by the `plays` function.
--- Returns Nothing if the effect doesnt need anything else,
--- or returns (playerId, the effect) if its got a second
--- part (like with throne room or chapel).
-usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe (T.PlayerId, T.CardEffect))
+-- | Used internally by the `plays` function. Each card has a list of
+-- effects (like smithy has `PlusCard 3`). This function applies the given
+-- effect. It returns `Nothing` if the effect doesn't need a `Followup`,
+-- or it returns a `Just Followup`.
+usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe T.Followup)
 playerId `usesEffect` (T.PlusAction x) = do
     log playerId ("+ " ++ (show x) ++ " actions")
     modifyPlayer playerId $ over T.actions (+x)
@@ -408,3 +460,21 @@ playerId `usesEffect` effect@(T.OthersGainCurse x) = do
 
 -- only counted at the end of the game.
 playerId `usesEffect` effect@(T.GardensEffect) = return Nothing
+
+-- | Given a name, creates a player with that name.
+makePlayer :: String -> T.Player
+makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] 1 1 0
+
+-- Checks that the player can gain the given card, then adds it to his/her
+-- discard pile.
+gainCardUpTo :: T.PlayerId -> Int -> T.Card -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+gainCardUpTo playerId value card = do
+  if (card ^. T.cost) > value
+    then return . Left $ printf "Card is too expensive. You can gain a card costing up to %d but this card costs %d" value (card ^. T.cost)
+    else do
+      result <- getCard card
+      case result of
+        Nothing -> return . Left $ printf "We've run out of that card (%s)" (card ^. T.name)
+        (Just card_) -> do
+          modifyPlayer playerId $ over T.discard (card_:)
+          return $ Right Nothing

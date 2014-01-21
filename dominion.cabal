@@ -16,3 +16,9 @@ executable dominion
   build-depends:       base ==4.6.*, mtl ==2.1.2, lens ==3.9.0.2, transformers ==0.3.0.0, random-fu ==0.2.4.0, random-extras ==0.19, random ==1.0.1.1, hscolour ==1.20.3
   hs-source-dirs:      src
   main-is: Main.hs
+
+Library
+  Exposed-modules: Dominion, Dominion.Cards, Dominion.Cards.Base, Dominion.Cards.Original, Dominion.Strategies, Dominion.Types, Dominion.Internal
+  Build-depends: base ==4.6.*, mtl ==2.1.2, lens ==3.9.0.2, transformers ==0.3.0.0, random-fu ==0.2.4.0, random-extras ==0.19, random ==1.0.1.1, hscolour ==1.20.3
+  Other-modules: Dominion.Utils
+  hs-source-dirs:      src

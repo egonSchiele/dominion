@@ -1,6 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Dominion (Option(..), module Dominion) where
+module Dominion (
+                module Dominion, 
+                Option(..), 
+                has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay) where
 import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Types (Option(..))
@@ -17,15 +20,23 @@ import Data.Either
 import Control.Applicative
 import Dominion.Internal
 
-makePlayer :: String -> T.Player
-makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] 1 1 0
-
+-- | Convenience function. @ name \`uses\` strategy @ is the same as writing
+-- @ (name, strategy) @
 uses :: String -> T.Strategy -> (T.Player, T.Strategy)
 name `uses` strategy = ((makePlayer name), strategy)
 
+-- | The main method to simulate a dominion game. Example:
+--
+-- > import Dominion
+-- > import Dominion.Strategies
+-- >
+-- > main = dominion ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]
 dominion :: [(T.Player, T.Strategy)] -> IO ()
 dominion = dominionWithOpts []
 
+-- | Same as `dominion`, but allows you to pass in some options. Example:
+--
+-- > dominionWithOpts [Iterations 5, Log True] ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO ()
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allCards
@@ -37,9 +48,7 @@ dominionWithOpts options list = do
         actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
         cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
-
-    -- TODO we should cycle through all players to give each one an even
-    -- chance at going first
+    -- TODO we should cycle through all players to give each one an even chance at going first
     results <- forM [1..iterations] $ \i -> if even i
                                         then run (T.GameState players cards 1 verbose_) strategies
                                         else run (T.GameState (reverse players) cards 1 verbose_) strategies
@@ -47,7 +56,9 @@ dominionWithOpts options list = do
       let name = player ^. T.playerName
       putStrLn $ printf "player %s won %d times" name (count name results)
 
--- player buys a card
+-- | Player buys a card. Example:
+--
+-- > playerId `buys` smithy
 buys :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
 buys playerId card = do
     validation <- validateBuy playerId card
@@ -63,8 +74,14 @@ buys playerId card = do
                    log playerId $ printf "bought a %s" (card ^. T.name)
                    return $ Right ()
 
--- Give an array of cards, in order of preference of buy.
--- We'll try to buy as many cards as possible, in order of preference.
+-- | Give an array of cards, in order of preference.
+-- This function will buy as many cards as possible, in order of
+-- preference. For example, suppose you use:
+--
+-- > playerId `buysByPreference` [province, duchy]
+--
+-- And you have 16 money and two buys. You will buy two provinces.
+-- This runs all the same validations as `buys`.
 buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
     purchasableCards <- filterM (\card -> eitherToBool <$> validateBuy playerId card) cards
@@ -72,25 +89,39 @@ buysByPreference playerId cards = do
       playerId `buys` (head purchasableCards)
       playerId `buysByPreference` cards
 
--- Give an array of cards, in order of preference of play.
--- We'll try to play as many cards as possible, in order of preference.
+-- | Give an array of cards, in order of preference.
+-- This function will try to play as many cards as possible, in order of preference.
+-- Note: if any card requires a `Followup` (like `cellar` or
+-- `chapel`), you need to use `plays` instead. This runs all the same
+-- validations as `plays`.
 playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
     playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
     when (not (null playableCards)) $ do
       playerId `plays` (head playableCards)
       playerId `playsByPreference` cards
-
--- player plays an action card. We return an Either.
--- On error, we'll return an error message.
--- On success, we will return either:
---  Nothing, if there are no followup actions to be taken.
---  (playerId, card effect), if that effect has a folow-up
---  action that needs to be taken, such as when throne room
---  is played...you need to then select an action card to
---  play twice.
+ 
+-- | In the simplest case, this lets you play a card, like this:
 --
---  You can use the followup with `with`.
+-- > playerId `plays` smithy
+--
+-- You can just use this function blindly, without checking to see if you
+-- have enough actions, or whether you have a smithy in your hand.
+-- `plays` will perform those  validations for you. It returns a `PlayResult`,
+-- which is an `Either` with an error message or a return value.  
+--
+-- Some cards require an additional action. For example, if you use
+-- a workshop, you need to specify what card you're going to get. In that
+-- case, this function returns a `Followup`. A `Followup` just contains some information about the card you used.
+-- You can use the extra action of the card like this:
+--
+--  > playerId `plays` workshop `with` (Workshop gardens)
+--
+-- `with` takes a `FollowUp` and a `FollowupAction`, and applies the
+-- `FollowupAction`.
+-- Here's another example:
+--
+-- > playerId `plays` throneRoom `with` (ThroneRoom market)
 plays :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult (Maybe T.Followup))
 playerId `plays` card = do
     validation <- validatePlay playerId card
@@ -106,16 +137,28 @@ playerId `plays` card = do
                -- we should get at most *one* effect to return
                return . Right . listToMaybe . catMaybes $ results
 
--- The input of this function is directly the output of `plays`, so you can
+-- | You can use `with` to play an FollowupAction. For example:
+--
+-- > playerId `plays` chapel `with` (Chapel [4 `cardsOf` estate])
+--
+-- This will trash up to four estates from your hand (depending on how many
+-- you have). The input of this function is directly the output of `plays`, so you can
 -- chain these functions together easily. This automatically handles
--- checking whether the playresult was a Right, and it there is a followup,
--- and applies the followup action if there was something to followup on.
+-- checking whether the `PlayResult` was a `Right`, and whether there is
+-- a `Followup`, and whether the `FollowupAction` you gave matches the `Followup`,
+-- and applies the `FollowupAction`.
 --
--- `with` might lead to more extra effects. And specifically, lets say you
--- play throne room on throne room. Now you have TWO extra effects, i.e.
--- you can choose a card to play twice TWICE.
+-- The `FollowupAction` needs to match the `Followup`. You can't do this, for
+-- example:
 --
--- Thats why `with` might return an array of extra effects, not just one.
+-- > playerId `plays` throneRoom `with` (Workshop village)
+--
+-- You need this instead:
+--
+-- > playerId `plays` throneRoom `with` (ThroneRoom village)
+--
+-- `with` might lead to more `Followup`s, in which case you can chain calls
+-- using `withMulti`.
 with :: T.Dominion (T.PlayResult (Maybe T.Followup)) -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
 result_ `with` followupAction = do
     result <- result_
@@ -124,8 +167,17 @@ result_ `with` followupAction = do
       Right Nothing -> return $ Right Nothing
       Right (Just followup) -> followup `_with` followupAction
 
--- just like `with`, except you can give it an array of followup requests,
--- and an array of followup actions.
+-- | This is just like `with`, except you can give it an array of
+-- `Followup`s, and another array of `FollowupAction`s. Most cards will
+-- only generate one `Followup`. There's only one case I know about that
+-- would generate multiple `Followup`s: playing a throne room on a throne
+-- room.
+--
+-- > playerId `plays` throneRoom `with` (ThroneRoom throneRoom) `withMulti` [ThroneRoom market, ThroneRoom smithy]
+--
+-- Here, someone plays a throne room on a throne room. Now you have to
+-- follow up with two action cards: the two cards you want to play twice.
+-- The player passes in `market` and `smithy`, and they both get played twice.
 withMulti :: T.Dominion (T.PlayResult (Maybe [T.Followup])) -> [T.FollowupAction] -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
 results_ `withMulti` followupActions = do
     results <- results_
@@ -138,13 +190,14 @@ results_ `withMulti` followupActions = do
                              [] -> Nothing
                              xs -> Just xs
 
--- this is what `with` and `withMulti` use behind the scenes. Those
--- functions take care of un-binding the data and extracting it. This is
--- much more simple...this is the core function that takes a followup and
--- a followup action and applies that action.
+-- | `with` and `withMulti` automatically extract the `Followup` out of the
+-- result of `plays`. If you have a `Followup` already, or you want more
+-- control, you can use this instead.
 --
--- of course, if you don't pass in the right followup action, then it will
--- return an error (returns a playresult).
+-- > result <- playerId `plays` throneRoom
+-- > case result of
+-- >   Left str -> return . Left $ str
+-- >   Right followup -> followup `_with` (ThroneRoom market)
 _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
 (playerId, T.PlayActionCard x) `_with` (T.ThroneRoom card) = do
   hasCard <- playerId `has` card
@@ -172,6 +225,15 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
     log playerId "Moving deck into the discard pile"
     modifyPlayer playerId $ \p -> set T.deck [] $ over T.discard (++ (p ^. T.deck)) p
   return $ Right Nothing
+
+(playerId, T.TrashCards x) `_with` (T.Chapel cards) = do
+  let toTrash = take x cards
+  forM_ toTrash $ \card_ -> playerId `trashesCard` card_
+  return $ Right Nothing
+
+(playerId, T.GainCardUpto x) `_with` (T.Feast card) = gainCardUpTo playerId x card
+(playerId, T.GainCardUpto x) `_with` (T.Workshop card) = gainCardUpTo playerId x card
+
 
 (playerId, T.MineEffect) `_with` (T.Mine card) = do
   hasCard <- playerId `has` card
