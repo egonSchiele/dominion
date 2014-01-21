@@ -1,6 +1,6 @@
 # Dominion
 
-An easy to use [Dominion](http://en.wikipedia.org/wiki/Dominion_(card_game)) simulator! It allows you to test competing strategies and see what works best.
+An easy to use [Dominion](http://en.wikipedia.org/wiki/Dominion_\(card_game\)) simulator! It allows you to test competing strategies and see what works best.
 
 Usage:
 
