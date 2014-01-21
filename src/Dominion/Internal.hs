@@ -138,7 +138,7 @@ game strategies = do
    forM_ ids setupForTurn
    forM_ (zip ids strategies) (uncurry playTurn)
 
-run :: T.GameState -> [T.Strategy] -> IO String
+run :: T.GameState -> [T.Strategy] -> IO T.Result
 run state strategies = do
               (_, newState) <- runStateT (game strategies) state
               let cards = newState ^. T.cards
@@ -146,14 +146,15 @@ run state strategies = do
                 then returnResults newState
                 else run (over T.round (+1) newState) strategies
 
-returnResults :: T.GameState -> IO String
+returnResults :: T.GameState -> IO T.Result
 returnResults state = do
     let results = map (id &&& countPoints) (state ^. T.players)
+        winner  = view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
     when (state ^. T.verbose) $ do
       putStrLn "Game Over!"
       forM_ results $ \(player, points) -> do
         putStrLn $ printf "player %s got %d points" (player ^. T.playerName) points
-    return $ view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
+    return $ T.Result results winner
 
 isAction card = T.Action `elem` (card ^. T.cardType)
 isAttack card = T.Attack `elem` (card ^. T.cardType)

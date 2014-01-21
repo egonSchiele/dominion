@@ -1,9 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Dominion (
+                -- | How to use: https:\/\/github.com\/egonschiele\/dominion
                 module Dominion, 
                 Option(..), 
-                has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay) where
+                has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay, getRound) where
 import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Types (Option(..))
@@ -31,13 +32,13 @@ name `uses` strategy = ((makePlayer name), strategy)
 -- > import Dominion.Strategies
 -- >
 -- > main = dominion ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]
-dominion :: [(T.Player, T.Strategy)] -> IO ()
+dominion :: [(T.Player, T.Strategy)] -> IO [T.Result]
 dominion = dominionWithOpts []
 
 -- | Same as `dominion`, but allows you to pass in some options. Example:
 --
 -- > dominionWithOpts [Iterations 5, Log True] ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]
-dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO ()
+dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allCards
     let players       = map fst list
@@ -52,9 +53,11 @@ dominionWithOpts options list = do
     results <- forM [1..iterations] $ \i -> if even i
                                         then run (T.GameState players cards 1 verbose_) strategies
                                         else run (T.GameState (reverse players) cards 1 verbose_) strategies
+    let winnerNames = (map T.winner results)
     forM_ players $ \player -> do
       let name = player ^. T.playerName
-      putStrLn $ printf "player %s won %d times" name (count name results)
+      putStrLn $ printf "player %s won %d times" name (count name winnerNames)
+    return results
 
 -- | Player buys a card. Example:
 --

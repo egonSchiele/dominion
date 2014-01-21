@@ -170,3 +170,13 @@ data Option =
             -- Useful if you are testing a strategy that relies on
             -- a particular card.
             | Cards [Card]
+            deriving (Show)
+
+-- | Each `PlayerResult` is a tuple of a player and their final score.
+type PlayerResult = (Player, Int)
+
+-- | Players and their scores.
+data Result = Result {
+            playerResults :: [PlayerResult],
+            winner :: String
+            } deriving (Show)
