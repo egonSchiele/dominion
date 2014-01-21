@@ -17,6 +17,7 @@ import Data.Ord
 import qualified Dominion.Cards as CA
 import Control.Arrow
 import System.IO.Unsafe
+import Control.Applicative
 
 -- | see if a player has a card in his hand.
 --
@@ -31,6 +32,10 @@ coinValue :: T.Card -> Int
 coinValue card = sum $ map effect (card ^. T.effects)
           where effect (T.CoinValue num) = num
                 effect _ = 0
+
+-- | get the current round number
+getRound :: T.Dominion Int
+getRound = T._round <$> get
 
 -- | How much money this player's hand is worth (also counts any money you
 -- get from action cards, like +1 from market).
