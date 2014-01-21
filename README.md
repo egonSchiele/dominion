@@ -1,6 +1,6 @@
 # Dominion
 
-Dominion Simulator. Allows you to test competing strategies and see what works best.
+An easy to use [Dominion](http://en.wikipedia.org/wiki/Dominion_(card_game)) simulator! It allows you to test competing strategies and see what works best.
 
 Usage:
 
@@ -14,7 +14,8 @@ main = dominion ["adit" `uses` bigMoney, "maggie" `uses` bigMoneySmithy]
 Or you can pass in options:
 
 ```haskell
-main = dominionWithOpts [Log True, Iterations 1] ["adit" `uses` bigMoney, "maggie" `uses` bigMoneySmithy]
+players = ["adit" `uses` bigMoney, "maggie" `uses` bigMoneySmithy]
+main = dominionWithOpts [Log True, Iterations 1] players
 ```
 
 ## Strategies
@@ -56,7 +57,7 @@ Just as a control, lets use the same strategy with both players:
 
 So clearly, adding the smithy to big money makes a big difference!
 
-### Followup actions
+## Followup actions
 
 Some action cards have a followup action. For example, if you use throne room, you can pick another card and play it twice. Here's how that looks:
 
