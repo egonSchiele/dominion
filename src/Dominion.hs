@@ -52,7 +52,7 @@ dominionWithOpts options list = do
     -- TODO we should cycle through all players to give each one an even chance at going first
     results <- forM [1..iterations] $ \i -> if even i
                                         then run (T.GameState players cards 1 verbose_) strategies
-                                        else run (T.GameState (reverse players) cards 1 verbose_) strategies
+                                        else run (T.GameState (reverse players) cards 1 verbose_) (reverse strategies)
     let winnerNames = (map T.winner results)
     forM_ players $ \player -> do
       let name = player ^. T.playerName

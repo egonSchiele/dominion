@@ -10,3 +10,7 @@ bigMoney playerId = playerId `buysByPreference` [province, gold, duchy, silver, 
 bigMoneySmithy playerId = do
     playerId `plays` smithy
     playerId `buysByPreference` [province, gold, duchy, smithy, silver, copper]
+
+-- | A strategy that should never win: buy only provinces and golds
+-- exclusively.
+stupidStrategy playerId = playerId `buysByPreference` [province, gold]

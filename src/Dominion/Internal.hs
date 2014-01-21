@@ -120,6 +120,8 @@ setupForTurn playerId = do
 
 playTurn :: T.PlayerId -> T.Strategy -> T.Dominion ()
 playTurn playerId strategy = do
+    roundNum <- getRound
+    when (roundNum == 1) $ setupForTurn playerId
     player <- getPlayer playerId
     log playerId $ "player's hand has: " ++ (show . map T._name $ player ^. T.hand)
     strategy playerId
@@ -135,7 +137,6 @@ game :: [T.Strategy] -> T.Dominion ()
 game strategies = do
    state <- get
    let ids = indices $ state ^. T.players
-   forM_ ids setupForTurn
    forM_ (zip ids strategies) (uncurry playTurn)
 
 run :: T.GameState -> [T.Strategy] -> IO T.Result
