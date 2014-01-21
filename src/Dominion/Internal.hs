@@ -33,7 +33,7 @@ coinValue card = sum $ map effect (card ^. T.effects)
           where effect (T.CoinValue num) = num
                 effect _ = 0
 
--- | get the current round number
+-- | Get the current round number.
 getRound :: T.Dominion Int
 getRound = T._round <$> get
 
