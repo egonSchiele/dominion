@@ -467,6 +467,7 @@ playerId `usesEffect` effect@(T.OthersGainCurse x) = do
 
 -- only counted at the end of the game.
 playerId `usesEffect` effect@(T.GardensEffect) = return Nothing
+playerId `usesEffect` _ = return Nothing
 
 -- | Given a name, creates a player with that name.
 makePlayer :: String -> T.Player
