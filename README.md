@@ -2,6 +2,10 @@
 
 An easy to use [Dominion](http://en.wikipedia.org/wiki/Dominion_\(card_game\)) simulator! It allows you to test competing strategies and see what works best.
 
+## Screencast
+
+[![Screenshot](http://static.adit.io/dominion_screencast.png)](https://vimeo.com/84722179)
+
 Usage:
 
 ```haskell
