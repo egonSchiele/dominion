@@ -78,4 +78,10 @@ multiThroneRoom playerId = do
                                                                             ThroneRoom market]
 ```
 
+## Documentation
+
 See the full documentation on [Hackage](http://hackage.haskell.org/package/dominion).
+
+## Contributing
+
+Pull requests welcome! [Here's a screencast on how to add a new card to the set](https://vimeo.com/84749131).
