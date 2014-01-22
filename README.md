@@ -1,5 +1,7 @@
 # Dominion
 
+[![Build Status](https://travis-ci.org/egonSchiele/dominion.png?branch=master)](https://travis-ci.org/egonSchiele/dominion)
+
 An easy to use [Dominion](http://en.wikipedia.org/wiki/Dominion_\(card_game\)) simulator! It allows you to test competing strategies and see what works best.
 
 ## Screencast
