@@ -202,7 +202,14 @@ getPlayer playerId = do
 -- | Convenience function. @ 4 \`cardsOf\` estate @ is the same as @ take 4 . repeat $ estate @
 cardsOf count card = take count $ repeat card
 
-pileOf card = 10 `cardsOf` card
+pileOf card
+  | card == CA.copper   = 60 `cardsOf` CA.copper
+  | card == CA.silver   = 40 `cardsOf` CA.silver
+  | card == CA.gold     = 30 `cardsOf` CA.gold
+  | card == CA.estate   = 12 `cardsOf` CA.estate
+  | card == CA.duchy    = 12 `cardsOf` CA.duchy
+  | card == CA.province = 12 `cardsOf` CA.province
+  | otherwise           = 10 `cardsOf` card
  
 eitherToBool :: (Either String ()) -> Bool
 eitherToBool (Left _) = False
