@@ -1,23 +1,23 @@
 module Dominion.Internal (
-  
-  -- | Note: You shouldn't need to import this module...the 
+
+  -- | Note: You shouldn't need to import this module...the
   -- interesting functions are re-exported by the Dominion module.
   --
   -- Use any other functions in here at your own risk.
   module Dominion.Internal
 ) where
-import Prelude hiding (log)
-import qualified Dominion.Types as T
-import Dominion.Utils
-import Text.Printf
-import Control.Lens hiding (indices, has)
-import Control.Monad.State hiding (state)
-import Data.List
-import Data.Ord
-import qualified Dominion.Cards as CA
-import Control.Arrow
-import System.IO.Unsafe
-import Control.Applicative
+import           Control.Applicative
+import           Control.Arrow
+import           Control.Lens        hiding (has, indices)
+import           Control.Monad.State hiding (state)
+import           Data.List
+import           Data.Ord
+import qualified Dominion.Cards      as CA
+import qualified Dominion.Types      as T
+import           Dominion.Utils
+import           Prelude             hiding (log)
+import           System.IO.Unsafe
+import           Text.Printf
 
 -- | see if a player has a card in his hand.
 --
@@ -210,7 +210,7 @@ pileOf card
   | card == CA.duchy    = 12 `cardsOf` CA.duchy
   | card == CA.province = 12 `cardsOf` CA.province
   | otherwise           = 10 `cardsOf` card
- 
+
 eitherToBool :: (Either String ()) -> Bool
 eitherToBool (Left _) = False
 eitherToBool (Right _) = True

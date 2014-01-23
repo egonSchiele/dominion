@@ -15,8 +15,8 @@ module Dominion.Types (
   -- structures, and it's been very useful for this module.
   module Dominion.Types
 ) where
-import Control.Lens
-import Control.Monad.State
+import           Control.Lens
+import           Control.Monad.State
 ---------------------------
 -- CARD
 ---------------------------
@@ -60,10 +60,10 @@ data CardEffect = CoinValue Int
                 deriving (Show, Eq)
 
 data Card = Card {
-              _name :: String,
-              _cost :: Int,
+              _name     :: String,
+              _cost     :: Int,
               _cardType :: [CardType],
-              _effects :: [CardEffect]
+              _effects  :: [CardEffect]
 } deriving (Show, Eq)
 makeLenses ''Card
 
@@ -108,11 +108,11 @@ data FollowupAction = ThroneRoom Card
 
 data Player = Player {
                 _playerName :: String,
-                _deck :: [Card],
-                _discard :: [Card],
-                _hand :: [Card],
-                _actions :: Int,
-                _buys :: Int,
+                _deck       :: [Card],
+                _discard    :: [Card],
+                _hand       :: [Card],
+                _actions    :: Int,
+                _buys       :: Int,
                 -- | Extra money gained from an action card (like +1 money
                 -- from market).
                 _extraMoney :: Int
@@ -133,9 +133,9 @@ type PlayerId = Int
 data GameState = GameState {
                     _players :: [Player],
                     -- | list of all the cards still in play.
-                    _cards :: [Card],
+                    _cards   :: [Card],
                     -- | round number
-                    _round :: Int,
+                    _round   :: Int,
                     _verbose :: Bool
 } deriving Show
 makeLenses ''GameState
@@ -178,5 +178,5 @@ type PlayerResult = (Player, Int)
 -- | Players and their scores.
 data Result = Result {
             playerResults :: [PlayerResult],
-            winner :: String
+            winner        :: String
             } deriving (Show)
