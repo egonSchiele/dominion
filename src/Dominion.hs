@@ -4,7 +4,7 @@ module Dominion (
                 -- | How to use: https:\/\/github.com\/egonschiele\/dominion
                 module Dominion, 
                 Option(..), 
-                has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay, getRound) where
+                has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay, getRound, countNum) where
 import Prelude hiding (log)
 import qualified Dominion.Types as T
 import Dominion.Types (Option(..))

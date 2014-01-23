@@ -27,6 +27,15 @@ has playerId card = do
     player <- getPlayer playerId
     return $ card `elem` (player ^. T.hand)
 
+-- | see how many of this card a player has.
+--
+-- > numMarkets <- countNum playerId market
+countNum :: T.PlayerId -> T.Card -> T.Dominion Int
+countNum playerId card = do
+    player <- getPlayer playerId
+    let allCards = player ^. T.deck ++ player ^. T.discard ++ player ^. T.hand
+    return $ count card allCards
+
 -- | What this card is worth in money.
 coinValue :: T.Card -> Int
 coinValue card = sum $ map effect (card ^. T.effects)
