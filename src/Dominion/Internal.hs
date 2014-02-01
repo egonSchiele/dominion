@@ -245,13 +245,10 @@ validateBuy playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
-    if money < (card ^. T.cost)
-      then return . Left $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
-      else if not (card `elem` (state ^. T.cards))
-             then return . Left $ printf "We've run out of that card (%s)" (card ^. T.name)
-             else if (player ^. T.buys) < 1
-                    then return . Left $ "You don't have any buys remaining!"
-                    else return $ Right ()
+    return $ do
+      failIf (money < (card ^. T.cost)) $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
+      failIf (not (card `elem` (state ^. T.cards))) $ printf "We've run out of that card (%s)" (card ^. T.name)
+      failIf ((player ^. T.buys) < 1) $ "You don't have any buys remaining!"
 
 -- | Check that this player is able to play this card. Returns
 -- a `Right` if they can play the card, otherwise returns a `Left` with
@@ -259,13 +256,10 @@ validateBuy playerId card = do
 validatePlay :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
 validatePlay playerId card = do
     player <- getPlayer playerId
-    if not (isAction card)
-      then return . Left $ printf "%s is not an action card" (card ^. T.name)
-      else if (player ^. T.actions) < 1
-             then return . Left $ "You don't have any actions remaining!"
-             else if not (card `elem` (player ^. T.hand))
-                    then return . Left $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
-                    else return $ Right ()
+    return $ do
+      failIf (not (isAction card)) $ printf "%s is not an action card" (card ^. T.name)
+      failIf ((player ^. T.actions) < 1) $ "You don't have any actions remaining!"
+      failIf (not (card `elem` (player ^. T.hand))) $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
 
 -- Discard this player's hand.
 discardHand :: T.PlayerId -> T.Dominion ()

@@ -35,3 +35,8 @@ indices :: [a] -> [Int]
 indices arr = [0..(length arr - 1)]
 
 join = intercalate
+
+
+failIf :: Bool -> String -> Either String ()
+failIf True str = Left str
+failIf False str = Right ()
