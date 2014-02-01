@@ -240,35 +240,37 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
 
 (playerId, T.MineEffect) `_with` (T.Mine card) = do
   hasCard <- playerId `has` card
-  if not hasCard
-    then return . Left $ printf "You don't have a %s in your hand!" (card ^. T.name)
-    else if (not . isTreasure $ card)
-           then return . Left $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
-           else if (card == CA.gold)
-                  then return . Left $ "can't upgrade gold!"
-                  else do
-                    newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
-                    case newCard_ of
-                      Nothing -> return . Left $ "Sorry, we are out of the card you could've upgraded to."
-                      Just newCard -> do
-                        playerId `trashesCard` card
-                        modifyPlayer playerId $ over T.hand (newCard:)
-                        log playerId $ printf "trashed a %s for a %s" (card ^. T.name) (newCard ^. T.name)
-                        return $ Right Nothing
+  let check = do
+        failIf (not hasCard) $ printf "You don't have a %s in your hand!" (card ^. T.name)
+        failIf (not . isTreasure $ card) $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
+        failIf (card == CA.gold) $ "can't upgrade gold!"
+  case check of
+    Left str -> return $ Left str
+    Right _ -> do
+      newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
+      case newCard_ of
+        Nothing -> return . Left $ "Sorry, we are out of the card you could've upgraded to."
+        Just newCard -> do
+          playerId `trashesCard` card
+          modifyPlayer playerId $ over T.hand (newCard:)
+          log playerId $ printf "trashed a %s for a %s" (card ^. T.name) (newCard ^. T.name)
+          return $ Right Nothing
 
 (playerId, T.RemodelEffect) `_with` (T.Remodel (toTrash, toGain)) = do
   hasCard <- playerId `has` toTrash
-  if not hasCard
-    then return . Left $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
-    else if ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
-           then return . Left $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
-           else do
-             newCard_ <- getCard toGain
-             case newCard_ of
-               Nothing -> return . Left $ printf "Sorry, no more %s left" (toGain ^. T.name)
-               Just card -> do
-                 modifyPlayer playerId $ over T.discard (card:)
-                 return $ Right Nothing
+  let check = do
+        failIf (not hasCard) $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
+        let tooExpensive = ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
+        failIf tooExpensive $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
+  case check of
+    Left str -> return $ Left str
+    Right _ -> do
+      newCard_ <- getCard toGain
+      case newCard_ of
+        Nothing -> return . Left $ printf "Sorry, no more %s left" (toGain ^. T.name)
+        Just card -> do
+          modifyPlayer playerId $ over T.discard (card:)
+          return $ Right Nothing
 
 (playerId, T.SpyEffect) `_with` (T.Spy (myself, others)) = do
   modifyPlayer playerId (discardTopCard myself)
