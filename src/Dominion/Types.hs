@@ -17,6 +17,7 @@ module Dominion.Types (
 ) where
 import           Control.Lens
 import           Control.Monad.State
+import           Control.Monad.Error
 ---------------------------
 -- CARD
 ---------------------------
@@ -142,7 +143,7 @@ makeLenses ''GameState
 
 -- The Dominion monad is just the `StateT` monad that has a `GameState`
 -- plus the IO monad.
-type Dominion a = StateT GameState IO a
+type Dominion = StateT GameState (ErrorT String IO)
 
 -- | Given a playerId, run some actions for this player. Example:
 --

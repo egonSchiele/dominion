@@ -18,6 +18,7 @@ import           Dominion.Utils
 import           Prelude             hiding (log)
 import           System.IO.Unsafe
 import           Text.Printf
+import Control.Monad.Error
 
 -- | see if a player has a card in his hand.
 --
@@ -150,11 +151,16 @@ game strategies = do
 
 run :: T.GameState -> [T.Strategy] -> IO T.Result
 run state strategies = do
-              (_, newState) <- runStateT (game strategies) state
-              let cards = newState ^. T.cards
-              if gameOver cards
-                then returnResults newState
-                else run (over T.round (+1) newState) strategies
+              result_ <- runErrorT (runStateT (game strategies) state)
+              case result_ of
+                Left str -> do
+                  putStrLn $ "Error: " ++ str
+                  return $ T.Result [] "adit"
+                Right (_, newState) -> do
+                  let cards = newState ^. T.cards
+                  if gameOver cards
+                    then returnResults newState
+                    else run (over T.round (+1) newState) strategies
 
 returnResults :: T.GameState -> IO T.Result
 returnResults state = do
@@ -240,26 +246,24 @@ drawFromFull playerId numCards = do
 -- | Check that this player is able to purchase this card. Returns
 -- a `Right` if they can purchase the card, otherwise returns a `Left` with
 -- the reason why they can't purchase it.
-validateBuy :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
+validateBuy :: T.PlayerId -> T.Card -> T.Dominion ()
 validateBuy playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
-    return $ do
-      failIf (money < (card ^. T.cost)) $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
-      failIf (not (card `elem` (state ^. T.cards))) $ printf "We've run out of that card (%s)" (card ^. T.name)
-      failIf ((player ^. T.buys) < 1) $ "You don't have any buys remaining!"
+    when (money < (card ^. T.cost)) $ throwError $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
+    when (not (card `elem` (state ^. T.cards))) $ throwError $ printf "We've run out of that card (%s)" (card ^. T.name)
+    when ((player ^. T.buys) < 1) $ throwError "You don't have any buys remaining!"
 
 -- | Check that this player is able to play this card. Returns
 -- a `Right` if they can play the card, otherwise returns a `Left` with
 -- the reason why they can't play it.
-validatePlay :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
+validatePlay :: T.PlayerId -> T.Card -> T.Dominion ()
 validatePlay playerId card = do
     player <- getPlayer playerId
-    return $ do
-      failIf (not (isAction card)) $ printf "%s is not an action card" (card ^. T.name)
-      failIf ((player ^. T.actions) < 1) $ "You don't have any actions remaining!"
-      failIf (not (card `elem` (player ^. T.hand))) $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
+    when (not (isAction card)) $ throwError $ printf "%s is not an action card" (card ^. T.name)
+    when ((player ^. T.actions) < 1) $ throwError $ "You don't have any actions remaining!"
+    when (not (card `elem` (player ^. T.hand))) $ throwError $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
 
 -- Discard this player's hand.
 discardHand :: T.PlayerId -> T.Dominion ()
@@ -485,14 +489,13 @@ makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.esta
 
 -- Checks that the player can gain the given card, then adds it to his/her
 -- discard pile.
-gainCardUpTo :: T.PlayerId -> Int -> T.Card -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+gainCardUpTo :: T.PlayerId -> Int -> T.Card -> T.Dominion (Maybe [T.Followup])
 gainCardUpTo playerId value card = do
-  if (card ^. T.cost) > value
-    then return . Left $ printf "Card is too expensive. You can gain a card costing up to %d but this card costs %d" value (card ^. T.cost)
-    else do
-      result <- getCard card
-      case result of
-        Nothing -> return . Left $ printf "We've run out of that card (%s)" (card ^. T.name)
-        (Just card_) -> do
-          modifyPlayer playerId $ over T.discard (card_:)
-          return $ Right Nothing
+  let errString = printf "Card is too expensive. You can gain a card costing up to %d but this card costs %d" value (card ^. T.cost)
+  when ((card ^. T.cost) > value) $ throwError errString
+  result <- getCard card
+  case result of
+    Nothing -> throwError $ printf "We've run out of that card (%s)" (card ^. T.name)
+    (Just card_) -> do
+      modifyPlayer playerId $ over T.discard (card_:)
+      return Nothing

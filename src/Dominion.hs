@@ -20,6 +20,7 @@ import Dominion.Utils
 import Data.Either
 import Control.Applicative
 import Dominion.Internal
+import Control.Monad.Error hiding (join)
 
 -- | Convenience function. @ name \`uses\` strategy @ is the same as writing
 -- @ (name, strategy) @
@@ -62,20 +63,17 @@ dominionWithOpts options list = do
 -- | Player buys a card. Example:
 --
 -- > playerId `buys` smithy
-buys :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult ())
+buys :: T.PlayerId -> T.Card -> T.Dominion ()
 buys playerId card = do
-    validation <- validateBuy playerId card
-    case validation of
-      Left x -> return $ Left x
-      Right _ -> do
-                   money <- handValue playerId
-                   modifyPlayer playerId $ \p -> over T.discard (card:) $
-                                                 over T.buys (subtract 1) $
-                                                 -- this works because extraMoney can be negative
-                                                 over T.extraMoney (subtract $ card ^. T.cost) p
-                   modify $ over T.cards (delete card)
-                   log playerId $ printf "bought a %s" (card ^. T.name)
-                   return $ Right ()
+    validateBuy playerId card
+    money <- handValue playerId
+    modifyPlayer playerId $ \p -> over T.discard (card:) $
+                                  over T.buys (subtract 1) $
+                                  -- this works because extraMoney can be negative
+                                  over T.extraMoney (subtract $ card ^. T.cost) p
+    modify $ over T.cards (delete card)
+    log playerId $ printf "bought a %s" (card ^. T.name)
+    return ()
 
 -- | Give an array of cards, in order of preference.
 -- This function will buy as many cards as possible, in order of
@@ -87,7 +85,7 @@ buys playerId card = do
 -- This runs all the same validations as `buys`.
 buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
-    purchasableCards <- filterM (\card -> eitherToBool <$> validateBuy playerId card) cards
+    purchasableCards <- filterM (\card -> eitherToBool . runErrorT <$> validateBuy playerId card) cards
     when (not (null purchasableCards)) $ do
       playerId `buys` (head purchasableCards)
       playerId `buysByPreference` cards
@@ -99,7 +97,7 @@ buysByPreference playerId cards = do
 -- validations as `plays`.
 playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
-    playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
+    playableCards <- filterM (\card -> eitherToBool . runErrorT <$> validatePlay playerId card) cards
     when (not (null playableCards)) $ do
       playerId `plays` (head playableCards)
       playerId `playsByPreference` cards
@@ -125,20 +123,17 @@ playsByPreference playerId cards = do
 -- Here's another example:
 --
 -- > playerId `plays` throneRoom `with` (ThroneRoom market)
-plays :: T.PlayerId -> T.Card -> T.Dominion (T.PlayResult (Maybe T.Followup))
+plays :: T.PlayerId -> T.Card -> T.Dominion (Maybe T.Followup)
 playerId `plays` card = do
-    validation <- validatePlay playerId card
-    case validation of
-      Left x -> return $ Left x
-      Right _ -> do
-               log playerId $ printf "plays a %s!" (card ^. T.name)
-               results <- mapM (usesEffect playerId) (card ^. T.effects)
-               modifyPlayer playerId (over T.actions (subtract 1))
-               if trashThisCard card
-                 then playerId `trashesCard` card
-                 else playerId `discardsCard` card
-               -- we should get at most *one* effect to return
-               return . Right . listToMaybe . catMaybes $ results
+    validatePlay playerId card
+    log playerId $ printf "plays a %s!" (card ^. T.name)
+    results <- mapM (usesEffect playerId) (card ^. T.effects)
+    modifyPlayer playerId (over T.actions (subtract 1))
+    if trashThisCard card
+      then playerId `trashesCard` card
+      else playerId `discardsCard` card
+    -- we should get at most *one* effect to return
+    return . listToMaybe . catMaybes $ results
 
 -- | You can use `with` to play an FollowupAction. For example:
 --
@@ -162,13 +157,10 @@ playerId `plays` card = do
 --
 -- `with` might lead to more `Followup`s, in which case you can chain calls
 -- using `withMulti`.
-with :: T.Dominion (T.PlayResult (Maybe T.Followup)) -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
+with :: T.Dominion (Maybe T.Followup) -> T.FollowupAction -> T.Dominion (Maybe [T.Followup])
 result_ `with` followupAction = do
     result <- result_
-    case result of
-      Left str -> return $ Left str
-      Right Nothing -> return $ Right Nothing
-      Right (Just followup) -> followup `_with` followupAction
+    result `_with` followupAction
 
 -- | This is just like `with`, except you can give it an array of
 -- `Followup`s, and another array of `FollowupAction`s. Most cards will
@@ -181,17 +173,17 @@ result_ `with` followupAction = do
 -- Here, someone plays a throne room on a throne room. Now you have to
 -- follow up with two action cards: the two cards you want to play twice.
 -- The player passes in `market` and `smithy`, and they both get played twice.
-withMulti :: T.Dominion (T.PlayResult (Maybe [T.Followup])) -> [T.FollowupAction] -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
-results_ `withMulti` followupActions = do
-    results <- results_
-    case results of
-      Left str -> return $ Left str
-      Right Nothing -> return $ Right Nothing
-      Right (Just followups) -> do
-          allResults <- mapM (uncurry _with) (zip followups followupActions)
-          return $ Right $ case (concat . catMaybes . rights $ allResults) of
-                             [] -> Nothing
-                             xs -> Just xs
+-- withMulti :: T.Dominion (Maybe [T.Followup]) -> [T.FollowupAction] -> T.Dominion (Maybe [T.Followup])
+-- results_ `withMulti` followupActions = do
+--     results <- results_
+--     case results of
+--       Left str -> return $ Left str
+--       Right Nothing -> return $ Right Nothing
+--       Right (Just followups) -> do
+--           allResults <- mapM (uncurry _with) (zip followups followupActions)
+--           return $ Right $ case (concat . catMaybes . rights $ allResults) of
+--                              [] -> Nothing
+--                              xs -> Just xs
 
 -- | `with` and `withMulti` automatically extract the `Followup` out of the
 -- result of `plays`. If you have a `Followup` already, or you want more
@@ -201,83 +193,74 @@ results_ `withMulti` followupActions = do
 -- > case result of
 -- >   Left str -> return . Left $ str
 -- >   Right followup -> followup `_with` (ThroneRoom market)
-_with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
-(playerId, T.PlayActionCard x) `_with` (T.ThroneRoom card) = do
+_with :: (Maybe T.Followup) -> T.FollowupAction -> T.Dominion (Maybe [T.Followup])
+Nothing `_with` _ = return Nothing
+Just (playerId, T.PlayActionCard x) `_with` (T.ThroneRoom card) = do
   hasCard <- playerId `has` card
-  if not hasCard
-    then return . Left $ printf "You don't have a %s in your hand!" (card ^. T.name)
-    else do
-      log playerId $ printf "playing %s twice!" (card ^. T.name)
-      results <- mapM (usesEffect playerId) ((card ^. T.effects) ++ (card ^. T.effects))
-      playerId `discardsCard` card
-      return $ Right $ case (catMaybes results) of
-                 [] -> Nothing
-                 xs -> Just xs
+  when (not hasCard) $ throwError $ printf "You don't have a %s in your hand!" (card ^. T.name)
+  log playerId $ printf "playing %s twice!" (card ^. T.name)
+  results <- mapM (usesEffect playerId) ((card ^. T.effects) ++ (card ^. T.effects))
+  playerId `discardsCard` card
+  return $ case (catMaybes results) of
+             [] -> Nothing
+             xs -> Just xs
 
-(playerId, T.CellarEffect) `_with` (T.Cellar cards) = do
+Just (playerId, T.CellarEffect) `_with` (T.Cellar cards) = do
   forM_ cards $ \card -> do
     hasCard <- playerId `has` card
     when hasCard $ do
       playerId `discardsCard` card
       [drawnCard] <- drawFromDeck playerId 1
       log playerId $ printf "discarded a %s and got a %s" (card ^. T.name) (drawnCard ^. T.name)
-  return $ Right Nothing
+  return Nothing
 
-(playerId, T.ChancellorEffect) `_with` (T.Chancellor moveDeck) = do
+Just (playerId, T.ChancellorEffect) `_with` (T.Chancellor moveDeck) = do
   when moveDeck $ do
     log playerId "Moving deck into the discard pile"
     modifyPlayer playerId $ \p -> set T.deck [] $ over T.discard (++ (p ^. T.deck)) p
-  return $ Right Nothing
+  return Nothing
 
-(playerId, T.TrashCards x) `_with` (T.Chapel cards) = do
+Just (playerId, T.TrashCards x) `_with` (T.Chapel cards) = do
   let toTrash = take x cards
   forM_ toTrash $ \card_ -> playerId `trashesCard` card_
-  return $ Right Nothing
+  return Nothing
 
-(playerId, T.GainCardUpto x) `_with` (T.Feast card) = gainCardUpTo playerId x card
-(playerId, T.GainCardUpto x) `_with` (T.Workshop card) = gainCardUpTo playerId x card
+Just (playerId, T.GainCardUpto x) `_with` (T.Feast card) = gainCardUpTo playerId x card
+Just (playerId, T.GainCardUpto x) `_with` (T.Workshop card) = gainCardUpTo playerId x card
 
 
-(playerId, T.MineEffect) `_with` (T.Mine card) = do
+Just (playerId, T.MineEffect) `_with` (T.Mine card) = do
   hasCard <- playerId `has` card
-  let check = do
-        failIf (not hasCard) $ printf "You don't have a %s in your hand!" (card ^. T.name)
-        failIf (not . isTreasure $ card) $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
-        failIf (card == CA.gold) $ "can't upgrade gold!"
-  case check of
-    Left str -> return $ Left str
-    Right _ -> do
-      newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
-      case newCard_ of
-        Nothing -> return . Left $ "Sorry, we are out of the card you could've upgraded to."
-        Just newCard -> do
-          playerId `trashesCard` card
-          modifyPlayer playerId $ over T.hand (newCard:)
-          log playerId $ printf "trashed a %s for a %s" (card ^. T.name) (newCard ^. T.name)
-          return $ Right Nothing
+  when (not hasCard) $ throwError $ printf "You don't have a %s in your hand!" (card ^. T.name)
+  when (not . isTreasure $ card) $ throwError $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
+  when (card == CA.gold) $ throwError "can't upgrade gold!"
+  newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
+  case newCard_ of
+    Nothing -> throwError "Sorry, we are out of the card you could've upgraded to."
+    Just newCard -> do
+      playerId `trashesCard` card
+      modifyPlayer playerId $ over T.hand (newCard:)
+      log playerId $ printf "trashed a %s for a %s" (card ^. T.name) (newCard ^. T.name)
+      return Nothing
 
-(playerId, T.RemodelEffect) `_with` (T.Remodel (toTrash, toGain)) = do
+Just (playerId, T.RemodelEffect) `_with` (T.Remodel (toTrash, toGain)) = do
   hasCard <- playerId `has` toTrash
-  let check = do
-        failIf (not hasCard) $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
-        let tooExpensive = ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
-        failIf tooExpensive $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
-  case check of
-    Left str -> return $ Left str
-    Right _ -> do
-      newCard_ <- getCard toGain
-      case newCard_ of
-        Nothing -> return . Left $ printf "Sorry, no more %s left" (toGain ^. T.name)
-        Just card -> do
-          modifyPlayer playerId $ over T.discard (card:)
-          return $ Right Nothing
+  when (not hasCard) $ throwError $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
+  let tooExpensive = ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
+  when tooExpensive $ throwError $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
+  newCard_ <- getCard toGain
+  case newCard_ of
+    Nothing -> throwError $ printf "Sorry, no more %s left" (toGain ^. T.name)
+    Just card -> do
+      modifyPlayer playerId $ over T.discard (card:)
+      return Nothing
 
-(playerId, T.SpyEffect) `_with` (T.Spy (myself, others)) = do
+Just (playerId, T.SpyEffect) `_with` (T.Spy (myself, others)) = do
   modifyPlayer playerId (discardTopCard myself)
   modifyOtherPlayers playerId (discardTopCard others)
-  return $ Right Nothing
+  return Nothing
 
-(playerId, T.ThiefEffect) `_with` (T.Thief func) = do
+Just (playerId, T.ThiefEffect) `_with` (T.Thief func) = do
   state <- get
   let players = (indices (state ^. T.players)) \\ [playerId]
   forM_ players $ \pid -> do
@@ -289,22 +272,22 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
     if (null treasures)
       then do
         modifyPlayer pid $ over T.discard (++discards)
-        return . Left $ "Sorry, this player had no treasures."
+        throwError "Sorry, this player had no treasures."
       else do
         let action = func treasures
         case action of
           T.TrashOnly card -> do
             let other = treasures \\ [card]
             modifyPlayer pid $ over T.discard (++other)
-            return $ Right Nothing
+            return Nothing
           T.GainTrashedCard card -> do
             let other = treasures \\ [card]
             modifyPlayer pid $ over T.discard (++other)
             if (card `elem` treasures)
               then do
                 modifyPlayer playerId $ over T.discard (card:)
-                return $ Right Nothing
-              else return $ Left "That card wasn't one of the treasures you could trash!"
-  return $ Right Nothing
+                return Nothing
+              else throwError "That card wasn't one of the treasures you could trash!"
+  return Nothing
 
-_ `_with` _ = return $ Left "sorry, you can't play that effect with that extra effect."
+_ `_with` _ = throwError "sorry, you can't play that effect with that extra effect."
