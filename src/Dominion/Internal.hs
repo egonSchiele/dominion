@@ -151,16 +151,11 @@ game strategies = do
 
 run :: T.GameState -> [T.Strategy] -> IO T.Result
 run state strategies = do
-              result_ <- runErrorT (runStateT (game strategies) state)
-              case result_ of
-                Left str -> do
-                  putStrLn $ "Error: " ++ str
-                  return $ T.Result [] "adit"
-                Right (_, newState) -> do
-                  let cards = newState ^. T.cards
-                  if gameOver cards
-                    then returnResults newState
-                    else run (over T.round (+1) newState) strategies
+              (_, newState) <- runStateT (runErrorT (game strategies)) state
+              let cards = newState ^. T.cards
+              if gameOver cards
+                then returnResults newState
+                else run (over T.round (+1) newState) strategies
 
 returnResults :: T.GameState -> IO T.Result
 returnResults state = do
@@ -243,27 +238,32 @@ drawFromFull playerId numCards = do
     modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
     return drawnCards
 
+
+failIf :: Bool -> String -> T.Dominion Bool
+failIf True str = throwError str >> return False
+failIf False str = return True
+
 -- | Check that this player is able to purchase this card. Returns
 -- a `Right` if they can purchase the card, otherwise returns a `Left` with
 -- the reason why they can't purchase it.
-validateBuy :: T.PlayerId -> T.Card -> T.Dominion ()
+validateBuy :: T.PlayerId -> T.Card -> T.Dominion Bool
 validateBuy playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
-    when (money < (card ^. T.cost)) $ throwError $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
-    when (not (card `elem` (state ^. T.cards))) $ throwError $ printf "We've run out of that card (%s)" (card ^. T.name)
-    when ((player ^. T.buys) < 1) $ throwError "You don't have any buys remaining!"
+    failIf (money < (card ^. T.cost)) $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
+    failIf (not (card `elem` (state ^. T.cards))) $ printf "We've run out of that card (%s)" (card ^. T.name)
+    failIf ((player ^. T.buys) < 1) $ "You don't have any buys remaining!"
 
 -- | Check that this player is able to play this card. Returns
 -- a `Right` if they can play the card, otherwise returns a `Left` with
 -- the reason why they can't play it.
-validatePlay :: T.PlayerId -> T.Card -> T.Dominion ()
+validatePlay :: T.PlayerId -> T.Card -> T.Dominion Bool
 validatePlay playerId card = do
     player <- getPlayer playerId
-    when (not (isAction card)) $ throwError $ printf "%s is not an action card" (card ^. T.name)
-    when ((player ^. T.actions) < 1) $ throwError $ "You don't have any actions remaining!"
-    when (not (card `elem` (player ^. T.hand))) $ throwError $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
+    failIf (not (isAction card)) $ printf "%s is not an action card" (card ^. T.name)
+    failIf ((player ^. T.actions) < 1) $ "You don't have any actions remaining!"
+    failIf (not (card `elem` (player ^. T.hand))) $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
 
 -- Discard this player's hand.
 discardHand :: T.PlayerId -> T.Dominion ()

@@ -143,7 +143,7 @@ makeLenses ''GameState
 
 -- The Dominion monad is just the `StateT` monad that has a `GameState`
 -- plus the IO monad.
-type Dominion = StateT GameState (ErrorT String IO)
+type Dominion = ErrorT String (StateT GameState IO)
 
 -- | Given a playerId, run some actions for this player. Example:
 --

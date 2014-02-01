@@ -85,7 +85,7 @@ buys playerId card = do
 -- This runs all the same validations as `buys`.
 buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
-    purchasableCards <- filterM (\card -> eitherToBool . runErrorT <$> validateBuy playerId card) cards
+    purchasableCards <- filterM (\card -> validateBuy playerId card) cards
     when (not (null purchasableCards)) $ do
       playerId `buys` (head purchasableCards)
       playerId `buysByPreference` cards
@@ -97,7 +97,7 @@ buysByPreference playerId cards = do
 -- validations as `plays`.
 playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
-    playableCards <- filterM (\card -> eitherToBool . runErrorT <$> validatePlay playerId card) cards
+    playableCards <- filterM (\card -> validatePlay playerId card) cards
     when (not (null playableCards)) $ do
       playerId `plays` (head playableCards)
       playerId `playsByPreference` cards
