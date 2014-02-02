@@ -23,7 +23,7 @@ import           Text.Printf
 --
 -- > cards <- currentHand playerId
 currentHand :: T.PlayerId -> T.Dominion [T.Card]
-currentHand playerId = getPlayer playerId <$> (^. T.hand)
+currentHand playerId = (^. T.hand) <$> getPlayer playerId
 
 -- | see if a player has a card in his hand.
 --
