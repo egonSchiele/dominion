@@ -41,8 +41,7 @@ dominion = dominionWithOpts []
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allCards
-    let players       = map fst list
-        strategies    = map snd list
+    let (players, strategies) = unzip list
         iterations    = fromMaybe (findIteration options) 1000
         verbose_      = fromMaybe (findLog options) False
         requiredCards = take 10 $ fromMaybe (findCards options) []
