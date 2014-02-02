@@ -41,11 +41,10 @@ dominion = dominionWithOpts []
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allCards
-    let players       = map fst list
-        strategies    = map snd list
-        iterations    = fromJust $ findIteration options <|> Just 1000
-        verbose_      = fromJust $ findLog options <|> Just False
-        requiredCards = take 10 . fromJust $ findCards options <|> Just []
+    let (players, strategies) = unzip list
+        iterations    = fromMaybe (findIteration options) 1000
+        verbose_      = fromMaybe (findLog options) False
+        requiredCards = take 10 $ fromMaybe (findCards options) []
         actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
         cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
@@ -215,12 +214,14 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
                  xs -> Just xs
 
 (playerId, T.CellarEffect) `_with` (T.Cellar cards) = do
-  forM_ cards $ \card -> do
-    hasCard <- playerId `has` card
-    when hasCard $ do
-      playerId `discardsCard` card
-      [drawnCard] <- drawFromDeck playerId 1
-      log playerId $ printf "discarded a %s and got a %s" (card ^. T.name) (drawnCard ^. T.name)
+  hand <- currentHand playerId
+  let ownedCards = hand `intersect` cards
+      numCards = length ownedCards
+  forM_ ownedCards $ \card -> do
+    playerId `discardsCard` card
+    log playerId $ printf "discarded a %s" (card ^. T.name)
+  drawFromDeck playerId numCards
+  log playerId $ printf "drew %d cards" numCards
   return $ Right Nothing
 
 (playerId, T.ChancellorEffect) `_with` (T.Chancellor moveDeck) = do

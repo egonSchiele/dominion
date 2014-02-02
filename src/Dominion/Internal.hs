@@ -19,6 +19,12 @@ import           Prelude             hiding (log)
 import           System.IO.Unsafe
 import           Text.Printf
 
+-- | see all of the cards in a player's hand.
+--
+-- > cards <- currentHand playerId
+currentHand :: T.PlayerId -> T.Dominion [T.Card]
+currentHand playerId = (^. T.hand) <$> getPlayer playerId
+
 -- | see if a player has a card in his hand.
 --
 -- > hasCard <- playerId `has` chapel
