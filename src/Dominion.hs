@@ -215,12 +215,14 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
                  xs -> Just xs
 
 (playerId, T.CellarEffect) `_with` (T.Cellar cards) = do
-  forM_ cards $ \card -> do
-    hasCard <- playerId `has` card
-    when hasCard $ do
-      playerId `discardsCard` card
-      [drawnCard] <- drawFromDeck playerId 1
-      log playerId $ printf "discarded a %s and got a %s" (card ^. T.name) (drawnCard ^. T.name)
+  hand <- currentHand playerId
+  let ownedCards = hand `intersect` cards
+      numCards = length ownedCards
+  forM_ ownedCards $ \card -> do
+    playerId `discardsCard` card
+    log playerId $ printf "discarded a %s" (card ^. T.name)
+  drawFromDeck playerId numCards
+  log playerId $ printf "drew %d cards" numCards
   return $ Right Nothing
 
 (playerId, T.ChancellorEffect) `_with` (T.Chancellor moveDeck) = do
