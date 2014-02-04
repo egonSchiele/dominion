@@ -104,17 +104,24 @@ gameOver cards
 
 -- | Given a player id and a number of cards to draw, draws that many cards
 -- from the deck, shuffling if necessary.
--- TODO if the deck doesn't have enough cards, we should draw the cards in
--- the deck before shuffling and drawing the rest.
 drawFromDeck :: T.PlayerId -> Int -> T.Dominion [T.Card]
 drawFromDeck playerId numCards = do
     player <- getPlayer playerId
     let deck = player ^. T.deck
+    log playerId $ "deck: " ++ show (map T._name deck)
     if (length deck) >= numCards
-      then drawFromFull playerId numCards
+      then draw numCards
       else do
+        let inDeck = length deck
+        drawnCards <- draw inDeck
         shuffleDeck playerId
-        drawFromFull playerId numCards
+        draw (numCards - inDeck) >>= return . (++drawnCards)
+ where
+   draw numCards = do
+       player <- getPlayer playerId
+       let drawnCards = (take numCards (player ^. T.deck))
+       modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
+       return drawnCards
 
 -- | Like `modify` for the `State` monad, but works on players.
 -- Takes a player id and a function that modifies the player.
@@ -231,17 +238,6 @@ shuffleDeck_ player = set T.discard [] $ set T.deck newDeck player
                 deck    = player ^. T.deck
                 hand    = player ^. T.hand
                 newDeck = unsafePerformIO $ deckShuffle (deck ++ discard ++ hand)
-
--- private method that gets called from `drawFromDeck`
--- only gets called when we know that the player has
--- at least 5 cards in his/her deck
--- returns the drawn cards and adds them to the player's hand
-drawFromFull :: T.PlayerId -> Int -> T.Dominion [T.Card]
-drawFromFull playerId numCards = do
-    player <- getPlayer playerId
-    let drawnCards = (take numCards (player ^. T.deck))
-    modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
-    return drawnCards
 
 -- | Check that this player is able to purchase this card. Returns
 -- a `Right` if they can purchase the card, otherwise returns a `Left` with
