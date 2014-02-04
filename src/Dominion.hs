@@ -42,9 +42,9 @@ dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allCards
     let (players, strategies) = unzip list
-        iterations    = fromMaybe (findIteration options) 1000
-        verbose_      = fromMaybe (findLog options) False
-        requiredCards = take 10 $ fromMaybe (findCards options) []
+        iterations    = fromMaybe 1000 (findIteration options)
+        verbose_      = fromMaybe False (findLog options)
+        requiredCards = take 10 $ fromMaybe [] (findCards options)
         actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
         cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
