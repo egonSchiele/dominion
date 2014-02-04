@@ -48,8 +48,6 @@ dominionWithOpts options list = do
         actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
         cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
-    let rotate n xs = (drop n' xs) ++ (take n' xs)
-                      where n' = n `mod` length xs
     results <- forM [1..iterations] $ \i -> run (T.GameState (rotate i players) cards 1 verbose_) (rotate i strategies)
     let winnerNames = (map T.winner results)
     forM_ players $ \player -> do

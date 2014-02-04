@@ -40,3 +40,7 @@ join = intercalate
 failIf :: Bool -> String -> Either String ()
 failIf True str = Left str
 failIf False str = Right ()
+
+rotate n xs = (drop n' xs) ++ (take n' xs)
+  where n' = n `mod` length xs
+
