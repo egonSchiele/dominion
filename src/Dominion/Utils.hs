@@ -42,10 +42,13 @@ failIf True str = Left str
 failIf False str = Right ()
 
 -- | rotate a list
--- > rotate 2 [1, 2, 3]
--- yields [3, 2, 1]
--- > rotate 6 [1, 2, 3]
--- yields [1, 2, 3]
+--
+-- >>> rotate 2 [1, 2, 3]
+-- [3, 2, 1]
+--
+-- >>> rotate 6 [1, 2, 3]
+-- [1, 2, 3]
+--
 rotate :: Int -> [a] -> [a]
 rotate n xs = (drop n' xs) ++ (take n' xs)
   where n' = n `mod` length xs
