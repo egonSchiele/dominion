@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Dominion (
                 -- | How to use: https:\/\/github.com\/egonschiele\/dominion
                 module Dominion, 
@@ -26,7 +24,7 @@ import           Dominion.Internal
 -- | Convenience function. @ name \`uses\` strategy @ is the same as writing
 -- @ (name, strategy) @
 uses :: String -> T.Strategy -> (T.Player, T.Strategy)
-name `uses` strategy = ((makePlayer name), strategy)
+name `uses` strategy = (makePlayer name, strategy)
 
 -- | The main method to simulate a dominion game. Example:
 --
@@ -43,13 +41,13 @@ dominion = dominionWithOpts []
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
     actionCards_ <- deckShuffle CA.allActionCards
-    let actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
+    let actionCards   = take (10 - length requiredCards) actionCards_ ++ requiredCards
         cards         = M.fromList ([(CA.copper, 60), (CA.silver, 40), (CA.gold, 30),
                                     (CA.estate, 12), (CA.duchy, 12), (CA.province, 12)]
                                     ++ [(c, 10) | c <- actionCards])
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
     results <- forM [1..iterations] $ \i -> run (T.GameState (rotate i players) cards 1 verbose_) (rotate i strategies)    
-    let winnerNames = (map T.winner results)
+    let winnerNames = map T.winner results
     forM_ players $ \player -> do
       let name = player ^. T.playerName
       putStrLn $ printf "player %s won %d times" name (count name winnerNames)
@@ -88,8 +86,8 @@ buys playerId card = do
 buysByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 buysByPreference playerId cards = do
     purchasableCards <- filterM (\card -> eitherToBool <$> validateBuy playerId card) cards
-    when (not (null purchasableCards)) $ do
-      playerId `buys` (head purchasableCards)
+    unless (null purchasableCards) $ do
+      playerId `buys` head purchasableCards
       playerId `buysByPreference` cards
 
 -- | Give an array of cards, in order of preference.
@@ -100,8 +98,8 @@ buysByPreference playerId cards = do
 playsByPreference :: T.PlayerId -> [T.Card] -> T.Dominion ()
 playsByPreference playerId cards = do
     playableCards <- filterM (\card -> eitherToBool <$> validatePlay playerId card) cards
-    when (not (null playableCards)) $ do
-      playerId `plays` (head playableCards)
+    unless (null playableCards) $ do
+      playerId `plays` head playableCards
       playerId `playsByPreference` cards
  
 -- | In the simplest case, this lets you play a card, like this:
@@ -188,8 +186,8 @@ results_ `withMulti` followupActions = do
       Left str -> return $ Left str
       Right Nothing -> return $ Right Nothing
       Right (Just followups) -> do
-          allResults <- mapM (uncurry _with) (zip followups followupActions)
-          return $ Right $ case (concat . catMaybes . rights $ allResults) of
+          allResults <- zipWithM _with followups followupActions
+          return $ Right $ case concat . catMaybes . rights $ allResults of
                              [] -> Nothing
                              xs -> Just xs
 
@@ -210,7 +208,7 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
       log playerId $ printf "playing %s twice!" (card ^. T.name)
       results <- mapM (usesEffect playerId) ((card ^. T.effects) ++ (card ^. T.effects))
       playerId `discardsCard` card
-      return $ Right $ case (catMaybes results) of
+      return $ Right $ case catMaybes results of
                  [] -> Nothing
                  xs -> Just xs
 
@@ -245,11 +243,11 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
   let check = do
         failIf (not hasCard) $ printf "You don't have a %s in your hand!" (card ^. T.name)
         failIf (not . isTreasure $ card) $ printf "Mine only works with treasure cards, not %s" (card ^. T.name)
-        failIf (card == CA.gold) $ "can't upgrade gold!"
+        failIf (card == CA.gold) "can't upgrade gold!"
   case check of
     Left str -> return $ Left str
     Right _ -> do
-      newCard_ <- getCard (if (card == CA.copper) then CA.silver else CA.gold)
+      newCard_ <- getCard $ if card == CA.copper then CA.silver else CA.gold
       case newCard_ of
         Nothing -> return . Left $ "Sorry, we are out of the card you could've upgraded to."
         Just newCard -> do
@@ -262,7 +260,7 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
   hasCard <- playerId `has` toTrash
   let check = do
         failIf (not hasCard) $ printf "You don't have a %s in your hand!" (toTrash ^. T.name)
-        let tooExpensive = ((toGain ^. T.cost) > (toTrash ^. T.cost) + 2)
+        let tooExpensive = (toGain ^. T.cost) > (toTrash ^. T.cost) + 2
         failIf tooExpensive $ printf "You're remodeling a %s, a %s is too expensive" (toTrash ^. T.name) (toGain ^. T.name)
   case check of
     Left str -> return $ Left str
@@ -281,14 +279,14 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
 
 (playerId, T.ThiefEffect) `_with` (T.Thief func) = do
   state <- get
-  let players = (indices (state ^. T.players)) \\ [playerId]
+  let players = indices (state ^. T.players) \\ [playerId]
   forM_ players $ \pid -> do
     player <- getPlayer pid
     let topCards = take 2 (player ^. T.deck)
         treasures = filter isTreasure topCards
         discards = topCards \\ treasures
     modifyPlayer pid $ over T.deck (drop 2)
-    if (null treasures)
+    if null treasures
       then do
         modifyPlayer pid $ over T.discard (++discards)
         return . Left $ "Sorry, this player had no treasures."
@@ -302,7 +300,7 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
           T.GainTrashedCard card -> do
             let other = treasures \\ [card]
             modifyPlayer pid $ over T.discard (++other)
-            if (card `elem` treasures)
+            if card `elem` treasures
               then do
                 modifyPlayer playerId $ over T.discard (card:)
                 return $ Right Nothing
