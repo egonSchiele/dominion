@@ -185,6 +185,7 @@ countPoints player = sum $ map countValue effects
           effects      = concatMap T._effects victoryCards
           countValue (T.VPValue x) = x
           countValue (T.GardensEffect) = length cards `div` 10
+          countValue (T.DukeEffect) = count CA.duchy cards
           countValue _ = 0
 
 -- | Get player from game state specified by this id.
@@ -318,11 +319,12 @@ playerId `trashesCard` card = do
     modifyPlayer playerId (over T.hand (delete card))
 
 -- | Player discards the given card.
-discardsCard :: T.PlayerId -> T.Card -> T.Dominion ()
+discardsCard :: T.PlayerId -> T.Card -> T.Dominion Bool
 playerId `discardsCard` card = do
   hasCard <- playerId `has` card
   when hasCard $ do
     modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+  return hasCard
 
 -- Player returns the given card to the top of their deck.
 returnsCard :: T.PlayerId -> T.Card -> T.Dominion ()
@@ -385,9 +387,6 @@ playerId `usesEffect` (T.PlusCard x) = do
     drawFromDeck playerId x
     return Nothing
 
-playerId `usesEffect` effect@(T.PlayActionCard x) = do
-    return $ Just (playerId, effect)
-
 playerId `usesEffect` (T.AdventurerEffect) = do
     log playerId "finding the next two treasures from your deck..."
     drawnCards <- playerId `drawsUntil` (\cards -> return $ (countBy isTreasure cards) == 2)
@@ -405,26 +404,12 @@ playerId `usesEffect` (T.BureaucratEffect) = do
     modifyOtherPlayers playerId returnVPCard
     return Nothing
 
-playerId `usesEffect` effect@(T.CellarEffect) = do
-    return $ Just (playerId, effect)
-
-playerId `usesEffect` effect@(T.ChancellorEffect) = do
-    return $ Just (playerId, effect)
-
-playerId `usesEffect` effect@(T.TrashCards x) = do
-    log playerId ("Trash up to " ++ (show x) ++ " cards from your hand.")
-    return $ Just (playerId, effect)
-
 playerId `usesEffect` effect@(T.OthersPlusCard x) = do
     log playerId ("Every other player draws " ++ (show x) ++ " card.")
     state <- get
     let players = (indices (state ^. T.players)) \\ [playerId]
     forM_ players $ \pid -> drawFromDeck pid 1
     return Nothing
-
-playerId `usesEffect` effect@(T.GainCardUpto x) = do
-    log playerId ("Gain a card costing up to " ++ (show x) ++ " coins.")
-    return $ Just (playerId, effect)
 
 -- TODO this doesn't set aside any action cards.
 -- How do I implement the logic for choosing that?
@@ -447,9 +432,6 @@ playerId `usesEffect` effect@(T.OthersDiscardTo x) = do
     modifyOtherPlayers playerId (\p -> p `discardsTo` x)
     return Nothing
 
-playerId `usesEffect` effect@(T.MineEffect) = do
-    return $ Just (playerId, effect)
-
 playerId `usesEffect` effect@(T.MoneylenderEffect) = do
     hasCard <- playerId `has` CA.copper
     when hasCard $ do
@@ -458,14 +440,57 @@ playerId `usesEffect` effect@(T.MoneylenderEffect) = do
       modifyPlayer playerId $ over (T.extraMoney) (+3)
     return Nothing
 
-playerId `usesEffect` effect@(T.RemodelEffect) = do
+playerId `usesEffect` effect@(T.MasqueradeEffect) = do
+    -- TODO have each player pass a card to the left
     return $ Just (playerId, effect)
 
-playerId `usesEffect` effect@(T.SpyEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` (T.ShantyTownEffect) = do
+    hand <- currentHand playerId
+    let types = concatMap _cardType hand
+    when (not (T.Action `elem` types)) $ do
+      drawFromDeck playerId 2
+    return Nothing
 
-playerId `usesEffect` effect@(T.ThiefEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` (T.BaronEffect) = do
+    discarded <- playerId `discardsCard` CA.estate
+    if discarded
+      then modifyPlayer playerId $ over T.extraMoney (+4)
+      else do
+        result <- getCard card
+        case result of
+          Nothing -> return ()
+          (Just card_) -> modifyPlayer playerId $ over T.discard (card_:)
+    return Nothing
+
+playerId `usesEffect` T.BridgeEffect = do
+    -- TODO every card costs 1 less, implement this logic
+    return Nothing
+
+playerId `usesEffect` T.ConspiratorEffect = do
+    -- TODO keep track of # of action cards played per turn
+    return Nothing
+
+playerId `usesEffect` T.CoppersmithEffect = do
+    -- TODO copper produces an extra $1 this turn
+    return Nothing
+
+playerId `usesEffect` T.SaboteurEffect = do
+    -- TODO Each other player reveals cards from the top of his deck
+    -- until revealing one costing $3 or more. He trashes that card 
+    -- and may gain a card costing at most $2 less than it. 
+    -- He discards the other revealed cards.
+    return Nothing
+
+playerId `usesEffect` T.TorturerEffect = do
+    -- TODO Each other player chooses one: he discards 2 cards;
+    -- or he gains a Curse card, putting it in his hand.
+    return Nothing
+
+playerId `usesEffect` T.TributeEffect = do
+    -- TODO The player to your left reveals then discards the top 2 cards
+    -- of his deck. For each differently named card revealed, if it is an:
+    -- Action Card; +2 Actions; Treasure Card; +$2; Victory Card; +2 Cards
+    return Nothing
 
 playerId `usesEffect` effect@(T.OthersGainCurse x) = do
     log playerId ("All other players gain " ++ (show x) ++ " curses.")
@@ -481,9 +506,10 @@ playerId `usesEffect` effect@(T.OthersGainCurse x) = do
           return ()
         return Nothing
 
--- only counted at the end of the game.
-playerId `usesEffect` effect@(T.GardensEffect) = return Nothing
-playerId `usesEffect` _ = return Nothing
+-- lots of effects like Thief, Swindler etc. don't actually do anything
+-- until you use the followup. So I just return the followup for all of
+-- those here.
+playerId `usesEffect` effect = return $ Just (playerId, effect)
 
 -- | Given a name, creates a player with that name.
 makePlayer :: String -> T.Player
