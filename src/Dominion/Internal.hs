@@ -9,6 +9,7 @@ module Dominion.Internal (
 import           Control.Applicative
 import           Control.Arrow
 import           Control.Lens        hiding (has, indices)
+import 	         Control.Monad       (liftM)
 import           Control.Monad.State hiding (state)
 import           Data.List
 import           Data.Map.Lazy       ((!))
@@ -91,7 +92,7 @@ log playerId str = do
         buys = player ^. T.buys
         actions = player ^. T.actions
         statusLine = printf "[player %s, name: %s, money: %s, buys: %s, actions: %s]" (yellow . show $ playerId) (yellow name) (green . show $ money) (green . show $ buys) (red . show $ actions)
-    log_ $ statusLine ++ ": " ++ (green str)
+    log_ $ statusLine ++ ": " ++ green str
 
 -- | Like `log` but doesn't print out info about a player
 log_ :: String -> T.Dominion ()
@@ -111,17 +112,17 @@ drawFromDeck :: T.PlayerId -> Int -> T.Dominion [T.Card]
 drawFromDeck playerId numCards = do
     player <- getPlayer playerId
     let deck = player ^. T.deck
-    if (length deck) >= numCards
+    if length deck >= numCards
       then draw numCards
       else do
         let inDeck = length deck
         lastCards <- draw inDeck
         shuffleDeck playerId
-        draw (numCards - inDeck) >>= return . (++lastCards)
+        liftM (++ lastCards) $ draw (numCards - inDeck)
  where
    draw numCards = do
        player <- getPlayer playerId
-       let drawnCards = (take numCards (player ^. T.deck))
+       let drawnCards = take numCards (player ^. T.deck)
        modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
        return drawnCards
 
@@ -134,7 +135,7 @@ modifyPlayer playerId func = modify $ over (T.players . element playerId) func
 modifyOtherPlayers :: T.PlayerId -> (T.Player -> T.Player) -> T.Dominion ()
 modifyOtherPlayers playerId func = do
     state <- get
-    let players = (indices (state ^. T.players)) \\ [playerId]
+    let players = indices (state ^. T.players) \\ [playerId]
     forM_ players $ \pid -> modify $ over (T.players . element pid) func
 
 setupForTurn :: T.PlayerId -> T.Dominion ()
@@ -174,11 +175,11 @@ run state strategies = do
 returnResults :: T.GameState -> IO T.Result
 returnResults state = do
     let results = map (id &&& countPoints) (state ^. T.players)
-        winner  = view (_1 . T.playerName) $ maximumBy (comparing snd) $ results
+        winner  = view (_1 . T.playerName) $ maximumBy (comparing snd) results
     when (state ^. T.verbose) $ do
       putStrLn "Game Over!"
-      forM_ results $ \(player, points) -> do
-        putStrLn $ printf "player %s got %d points" (player ^. T.playerName) points
+      forM_ results $ \(player, points) -> putStrLn $
+        printf "player %s got %d points" (player ^. T.playerName) points
     return $ T.Result results winner
 
 isAction card = T.Action `elem` (card ^. T.cardType)
@@ -215,9 +216,9 @@ getPlayer playerId = do
     return $ (state ^. T.players) !! playerId
 
 -- | Convenience function. @ 4 \`cardsOf\` estate @ is the same as @ take 4 . repeat $ estate @
-cardsOf count card = take count $ repeat card
+cardsOf = replicate 
 
-eitherToBool :: (Either String ()) -> Bool
+eitherToBool :: Either String () -> Bool
 eitherToBool (Left _) = False
 eitherToBool (Right _) = True
 
@@ -244,7 +245,7 @@ validateBuy playerId card = do
     return $ do
       failIf (money < (card ^. T.cost)) $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
       failIf cardGone $ printf "We've run out of that card (%s)" (card ^. T.name)
-      failIf ((player ^. T.buys) < 1) $ "You don't have any buys remaining!"
+      failIf ((player ^. T.buys) < 1) "You don't have any buys remaining!"
 
 -- | Check that this player is able to play this card. Returns
 -- a `Right` if they can play the card, otherwise returns a `Left` with
@@ -254,8 +255,8 @@ validatePlay playerId card = do
     player <- getPlayer playerId
     return $ do
       failIf (not (isAction card)) $ printf "%s is not an action card" (card ^. T.name)
-      failIf ((player ^. T.actions) < 1) $ "You don't have any actions remaining!"
-      failIf (not (card `elem` (player ^. T.hand))) $ printf
+      failIf ((player ^. T.actions) < 1) "You don't have any actions remaining!"
+      failIf (card `notElem` (player ^. T.hand)) $ printf
         "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
 
 -- Discard this player's hand.
@@ -265,19 +266,19 @@ discardHand playerId = modifyPlayer playerId $ \player -> set T.hand [] $ over T
 -- for parsing options
 findIteration :: [T.Option] -> Maybe Int
 findIteration [] = Nothing
-findIteration ((T.Iterations x):xs) = Just x
+findIteration (T.Iterations x : xs) = Just x
 findIteration (_:xs) = findIteration xs
 
 -- for parsing options
 findLog :: [T.Option] -> Maybe Bool
 findLog [] = Nothing
-findLog ((T.Log x):xs) = Just x
+findLog (T.Log x : xs) = Just x
 findLog (_:xs) = findLog xs
 
 -- for parsing options
 findCards :: [T.Option] -> Maybe [T.Card]
 findCards [] = Nothing
-findCards ((T.Cards x):xs) = Just x
+findCards (T.Cards x : xs) = Just x
 findCards (_:xs) = findCards xs
 
 -- | Keep drawing a card until the provided function returns true.
@@ -305,27 +306,24 @@ trashThisCard card = T.TrashThisCard `elem` (card ^. T.effects)
 trashesCard :: T.PlayerId -> T.Card -> T.Dominion ()
 playerId `trashesCard` card = do
   hasCard <- playerId `has` card
-  when hasCard $ do
-    modifyPlayer playerId (over T.hand (delete card))
+  when hasCard $ modifyPlayer playerId (over T.hand (delete card))
 
 -- | Player discards the given card.
 discardsCard :: T.PlayerId -> T.Card -> T.Dominion ()
 playerId `discardsCard` card = do
   hasCard <- playerId `has` card
-  when hasCard $ do
-    modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
+  when hasCard $ modifyPlayer playerId $ over T.hand (delete card) . over T.discard (card:)
 
 -- Player returns the given card to the top of their deck.
 returnsCard :: T.PlayerId -> T.Card -> T.Dominion ()
 playerId `returnsCard` card = do
   hasCard <- playerId `has` card
-  when hasCard $ do
-    modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
+  when hasCard $ modifyPlayer playerId $ over T.hand (delete card) . over T.deck (card:)
 
 -- If the top card in the player's deck is one of the cards
 -- listed in the provided array, then discard that card (used with spy).
 discardTopCard :: [T.Card] -> T.Player -> T.Player
-discardTopCard cards player = if (topCard `elem` cards)
+discardTopCard cards player = if topCard `elem` cards
                                 then set T.deck (tail deck) . over T.discard (topCard:) $ player
                                 else player
     where topCard = head $ player ^. T.deck
@@ -338,7 +336,7 @@ returnVPCard :: T.Player -> T.Player
 returnVPCard player = let hand = player ^. T.hand
                           victoryCards = filter isVictory hand
                           card = head victoryCards
-                      in if (CA.moat `elem` hand || null victoryCards)
+                      in if CA.moat `elem` hand || null victoryCards
                           then player
                           else over T.hand (delete card) $ over T.deck (card:) player
 
@@ -357,31 +355,30 @@ player `discardsTo` x = set T.hand toKeep . over T.discard (++ toDiscard) $ play
 -- or it returns a `Just Followup`.
 usesEffect :: T.PlayerId -> T.CardEffect -> T.Dominion (Maybe T.Followup)
 playerId `usesEffect` (T.PlusAction x) = do
-    log playerId ("+ " ++ (show x) ++ " actions")
+    log playerId ("+ " ++ show x ++ " actions")
     modifyPlayer playerId $ over T.actions (+x)
     return Nothing
 
 playerId `usesEffect` (T.PlusCoin x) = do
-    log playerId ("+ " ++ (show x) ++ " coin")
+    log playerId ("+ " ++ show x ++ " coin")
     modifyPlayer playerId $ over T.extraMoney (+x)
     return Nothing
 
 playerId `usesEffect` (T.PlusBuy x) = do
-    log playerId ("+ " ++ (show x) ++ " buys")
+    log playerId ("+ " ++ show x ++ " buys")
     modifyPlayer playerId $ over T.buys (+x)
     return Nothing
 
 playerId `usesEffect` (T.PlusCard x) = do
-    log playerId ("+ " ++ (show x) ++ " cards")
+    log playerId ("+ " ++ show x ++ " cards")
     drawFromDeck playerId x
     return Nothing
 
-playerId `usesEffect` effect@(T.PlayActionCard x) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` effect@(T.PlayActionCard x) = return $ Just (playerId, effect)
 
 playerId `usesEffect` (T.AdventurerEffect) = do
     log playerId "finding the next two treasures from your deck..."
-    drawnCards <- playerId `drawsUntil` (\cards -> return $ (countBy isTreasure cards) == 2)
+    drawnCards <- playerId `drawsUntil` (\cards -> return $ countBy isTreasure cards == 2)
     -- the cards that weren't treasures need to be discarded
     forM_ (filter (not . isTreasure) drawnCards) $ \card -> playerId `discardsCard` card
     return Nothing
@@ -396,25 +393,23 @@ playerId `usesEffect` (T.BureaucratEffect) = do
     modifyOtherPlayers playerId returnVPCard
     return Nothing
 
-playerId `usesEffect` effect@(T.CellarEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.CellarEffect = return $ Just (playerId, T.CellarEffect)
 
-playerId `usesEffect` effect@(T.ChancellorEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.ChancellorEffect = return $ Just (playerId, T.ChancellorEffect)
 
 playerId `usesEffect` effect@(T.TrashCards x) = do
-    log playerId ("Trash up to " ++ (show x) ++ " cards from your hand.")
+    log playerId ("Trash up to " ++ show x ++ " cards from your hand.")
     return $ Just (playerId, effect)
 
 playerId `usesEffect` effect@(T.OthersPlusCard x) = do
-    log playerId ("Every other player draws " ++ (show x) ++ " card.")
+    log playerId ("Every other player draws " ++ show x ++ " card.")
     state <- get
-    let players = (indices (state ^. T.players)) \\ [playerId]
+    let players = (indices state ^. T.players) \\ [playerId]
     forM_ players $ \pid -> drawFromDeck pid 1
     return Nothing
 
 playerId `usesEffect` effect@(T.GainCardUpto x) = do
-    log playerId ("Gain a card costing up to " ++ (show x) ++ " coins.")
+    log playerId ("Gain a card costing up to " ++ show x ++ " coins.")
     return $ Just (playerId, effect)
 
 -- TODO this doesn't set aside any action cards.
@@ -434,32 +429,28 @@ playerId `usesEffect` effect@(T.LibraryEffect) = do
 -- they play. Otherwise suppose someone plays a council room
 -- followed by a militia. I need to codify that properly.
 playerId `usesEffect` effect@(T.OthersDiscardTo x) = do
-    log playerId ("Every other player discards down to " ++ (show x) ++ " cards.")
-    modifyOtherPlayers playerId (\p -> p `discardsTo` x)
+    log playerId ("Every other player discards down to " ++ show x ++ " cards.")
+    modifyOtherPlayers playerId (`discardsTo` x)
     return Nothing
 
-playerId `usesEffect` effect@(T.MineEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.MineEffect = return $ Just (playerId, T.MineEffect)
 
-playerId `usesEffect` effect@(T.MoneylenderEffect) = do
+playerId `usesEffect` T.MoneylenderEffect = do
     hasCard <- playerId `has` CA.copper
     when hasCard $ do
-      log playerId ("Trashing a copper. +3 coin")
+      log playerId "Trashing a copper. +3 coin"
       playerId `trashesCard` CA.copper
-      modifyPlayer playerId $ over (T.extraMoney) (+3)
+      modifyPlayer playerId $ over T.extraMoney (+3)
     return Nothing
 
-playerId `usesEffect` effect@(T.RemodelEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.RemodelEffect = return $ Just (playerId, T.RemodelEffect)
 
-playerId `usesEffect` effect@(T.SpyEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.SpyEffect = return $ Just (playerId, effect)
 
-playerId `usesEffect` effect@(T.ThiefEffect) = do
-    return $ Just (playerId, effect)
+playerId `usesEffect` T.ThiefEffect = return $ Just (playerId, effect)
 
-playerId `usesEffect` effect@(T.OthersGainCurse x) = do
-    log playerId ("All other players gain " ++ (show x) ++ " curses.")
+playerId `usesEffect` (T.OthersGainCurse x) = do
+    log playerId ("All other players gain " ++ show x ++ " curses.")
     let card = CA.curse
     empty <- pileEmpty card
     if empty
@@ -473,7 +464,7 @@ playerId `usesEffect` effect@(T.OthersGainCurse x) = do
         return Nothing
 
 -- only counted at the end of the game.
-playerId `usesEffect` effect@(T.GardensEffect) = return Nothing
+playerId `usesEffect` T.GardensEffect = return Nothing
 playerId `usesEffect` _ = return Nothing
 
 -- | Given a name, creates a player with that name.
@@ -483,7 +474,7 @@ makePlayer name = T.Player name [] (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.esta
 -- Checks that the player can gain the given card, then adds it to his/her
 -- discard pile.
 gainCardUpTo :: T.PlayerId -> Int -> T.Card -> T.Dominion (T.PlayResult (Maybe [T.Followup]))
-gainCardUpTo playerId value card = do
+gainCardUpTo playerId value card =
   if (card ^. T.cost) > value
     then return . Left $ printf "Card is too expensive. You can gain a card costing up to %d but this card costs %d" value (card ^. T.cost)
     else do
