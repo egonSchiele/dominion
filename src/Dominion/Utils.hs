@@ -50,7 +50,7 @@ failIf False str = Right ()
 -- [1, 2, 3]
 --
 rotate :: Int -> [a] -> [a]
-rotate n xs = (drop n' xs) ++ (take n' xs)
+rotate n xs = drop n' xs ++ take n' xs
   where n' = n `mod` length xs
 
 decrement :: Ord a => a -> M.Map a Int -> M.Map a Int
