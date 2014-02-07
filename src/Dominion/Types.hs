@@ -17,6 +17,7 @@ module Dominion.Types (
 ) where
 import           Control.Lens
 import           Control.Monad.State
+import qualified Data.Map.Lazy as M
 ---------------------------
 -- CARD
 ---------------------------
@@ -27,7 +28,7 @@ data CardType = Action
               | Treasure
               | Victory
               | Duration
-              deriving (Show, Eq)
+              deriving (Show, Eq, Ord)
 
 data CardEffect = CoinValue Int
                 | VPValue Int
@@ -57,14 +58,14 @@ data CardEffect = CoinValue Int
                 | OthersPlusCard Int
                 | OthersDiscardTo Int
                 | OthersGainCurse Int
-                deriving (Show, Eq)
+                deriving (Show, Eq, Ord)
 
 data Card = Card {
               _name     :: String,
               _cost     :: Int,
               _cardType :: [CardType],
               _effects  :: [CardEffect]
-} deriving (Show, Eq)
+} deriving (Show, Eq, Ord)
 makeLenses ''Card
 
 -- | Used with the `thief` card.
@@ -132,13 +133,19 @@ type PlayerId = Int
 -- > let roundNum = state ^. round
 data GameState = GameState {
                     _players :: [Player],
-                    -- | list of all the cards still in play.
-                    _cards   :: [Card],
+                    -- | all the cards still in play.
+                    _cards   :: M.Map Card Int,
                     -- | round number
                     _round   :: Int,
                     _verbose :: Bool
-} deriving Show
+} 
 makeLenses ''GameState
+
+instance Show GameState where
+  show gs = "GameState {players: " ++ show (_players gs)
+            ++ ", cards: " ++ show (M.mapKeys _name (_cards gs))
+            ++ ", round: " ++ show (_round gs)
+            ++ ", verbose: " ++ show (_verbose gs) ++ "}"
 
 -- The Dominion monad is just the `StateT` monad that has a `GameState`
 -- plus the IO monad.

@@ -10,4 +10,4 @@ import Dominion.Cards.Original
 import Dominion.Cards.Intrigue
 
 -- | All action cards available for use.
-allCards = originalCards ++ intrigueCards
+allActionCards = originalCards ++ intrigueCards
