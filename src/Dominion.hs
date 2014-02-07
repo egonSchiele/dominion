@@ -5,21 +5,23 @@ module Dominion (
                 module Dominion, 
                 Option(..), 
                 has, handValue, pileEmpty, getPlayer, cardsOf, validateBuy, validatePlay, getRound, countNum) where
-import Prelude hiding (log)
-import qualified Dominion.Types as T
-import Dominion.Types (Option(..))
-import qualified Dominion.Cards as CA
-import Control.Monad hiding (join)
-import Data.Maybe
-import Control.Monad.State hiding (state, join)
-import Control.Lens hiding (indices, has)
-import Control.Monad.IO.Class
-import Text.Printf
-import Data.List
-import Dominion.Utils
-import Data.Either
-import Control.Applicative
-import Dominion.Internal
+
+import           Prelude                hiding (log)
+import qualified Data.Map.Lazy          as M
+import qualified Dominion.Types         as T
+import           Dominion.Types         (Option(..))
+import qualified Dominion.Cards         as CA
+import           Control.Monad          hiding (join)
+import           Data.Maybe
+import           Control.Monad.State    hiding (state, join)
+import           Control.Lens           hiding (indices, has)
+import           Control.Monad.IO.Class
+import           Text.Printf
+import           Data.List
+import           Dominion.Utils
+import           Data.Either
+import           Control.Applicative
+import           Dominion.Internal
 
 -- | Convenience function. @ name \`uses\` strategy @ is the same as writing
 -- @ (name, strategy) @
@@ -40,21 +42,23 @@ dominion = dominionWithOpts []
 -- > dominionWithOpts [Iterations 5, Log True] ["adit" `uses` bigMoney, "maggie" `uses` bigMoney]
 dominionWithOpts :: [T.Option] -> [(T.Player, T.Strategy)] -> IO [T.Result]
 dominionWithOpts options list = do
-    actionCards_ <- deckShuffle CA.allCards
-    let (players, strategies) = unzip list
-        iterations    = fromMaybe 1000 (findIteration options)
-        verbose_      = fromMaybe False (findLog options)
-        requiredCards = take 10 $ fromMaybe [] (findCards options)
-        actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
-        cards         = concatMap pileOf $ CA.treasureCards ++ CA.victoryCards ++ (take 10 actionCards)
+    actionCards_ <- deckShuffle CA.allActionCards
+    let actionCards   = take (10 - (length requiredCards)) actionCards_ ++ requiredCards
+        cards         = M.fromList ([(CA.copper, 60), (CA.silver, 40), (CA.gold, 30),
+                                    (CA.estate, 12), (CA.duchy, 12), (CA.province, 12)]
+                                    ++ [(c, 10) | c <- actionCards])
     when verbose_ $ putStrLn $ "Playing with: " ++ (join ", " . map T._name $ actionCards)
-    results <- forM [1..iterations] $ \i -> run (T.GameState (rotate i players) cards 1 verbose_) (rotate i strategies)
+    results <- forM [1..iterations] $ \i -> run (T.GameState (rotate i players) cards 1 verbose_) (rotate i strategies)    
     let winnerNames = (map T.winner results)
     forM_ players $ \player -> do
       let name = player ^. T.playerName
       putStrLn $ printf "player %s won %d times" name (count name winnerNames)
     return results
-
+  where (players, strategies) = unzip list
+        iterations    = fromMaybe 1000 (findIteration options)
+        verbose_      = fromMaybe False (findLog options)
+        requiredCards = take 10 $ fromMaybe [] (findCards options)
+        
 -- | Player buys a card. Example:
 --
 -- > playerId `buys` smithy
@@ -69,7 +73,7 @@ buys playerId card = do
                                                  over T.buys (subtract 1) $
                                                  -- this works because extraMoney can be negative
                                                  over T.extraMoney (subtract $ card ^. T.cost) p
-                   modify $ over T.cards (delete card)
+                   modify $ over T.cards (decrement card)
                    log playerId $ printf "bought a %s" (card ^. T.name)
                    return $ Right ()
 

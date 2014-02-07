@@ -1,6 +1,7 @@
 module Dominion.Utils where
 import Control.Monad
 import Control.Monad.State
+import qualified Data.Map.Lazy as M
 import Data.Random.Extras
 import Data.Random hiding (shuffle)
 import System.Random
@@ -36,11 +37,21 @@ indices arr = [0..(length arr - 1)]
 
 join = intercalate
 
-
 failIf :: Bool -> String -> Either String ()
 failIf True str = Left str
 failIf False str = Right ()
 
+-- | rotate a list
+--
+-- >>> rotate 2 [1, 2, 3]
+-- [3, 2, 1]
+--
+-- >>> rotate 6 [1, 2, 3]
+-- [1, 2, 3]
+--
+rotate :: Int -> [a] -> [a]
 rotate n xs = (drop n' xs) ++ (take n' xs)
   where n' = n `mod` length xs
 
+decrement :: Ord a => a -> M.Map a Int -> M.Map a Int
+decrement = M.adjust (\x -> x - 1)

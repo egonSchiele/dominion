@@ -11,6 +11,8 @@ import           Control.Arrow
 import           Control.Lens        hiding (has, indices)
 import           Control.Monad.State hiding (state)
 import           Data.List
+import           Data.Map.Lazy       ((!))
+import qualified Data.Map.Lazy       as M
 import           Data.Ord
 import qualified Dominion.Cards      as CA
 import qualified Dominion.Types      as T
@@ -59,11 +61,13 @@ handValue playerId = do
     player <- getPlayer playerId
     return $ sum (map coinValue (player ^. T.hand)) + (player ^. T.extraMoney)
 
--- | Check if this card's pile is empty.
+-- | Check if this card's pile is empty. Returns True is the card is not in play.
 pileEmpty :: T.Card -> T.Dominion Bool
 pileEmpty card = do
     state <- get
-    return $ card `elem` (state ^. T.cards)
+    return $ case M.lookup card (state ^. T.cards) of
+      Nothing -> True
+      Just x -> x == 0
 
 -- | Returns the card, or Nothing if that pile is empty.
 -- Useful because it automatically checks whether the pile is empty, and
@@ -74,7 +78,7 @@ getCard card = do
     if empty
       then return Nothing
       else do
-        modify $ over T.cards (delete card)
+        modify $ over T.cards (decrement card)
         return $ Just card
 
 -- | Convenience function. Prints out a line if verbose, AND prints out
@@ -95,26 +99,31 @@ log_ str = do
     state <- get
     when (state ^. T.verbose) $ liftIO . putStrLn $ str
 
+gameOver :: M.Map T.Card Int -> Bool
 gameOver cards
-    | not (CA.province `elem` cards) = True
-    -- (copper, silver, gold) + (curse, estate, duchy, province) + 10
-    -- action cards minus 3. Any three piles gone = game over.
-    | length (nub cards) <= (3 + 3 + 10 - 3) = True
+    | cards ! CA.province == 0 = True
+    | M.size (M.filter (== 0) cards) >= 3 = True
     | otherwise = False
 
 -- | Given a player id and a number of cards to draw, draws that many cards
 -- from the deck, shuffling if necessary.
--- TODO if the deck doesn't have enough cards, we should draw the cards in
--- the deck before shuffling and drawing the rest.
 drawFromDeck :: T.PlayerId -> Int -> T.Dominion [T.Card]
 drawFromDeck playerId numCards = do
     player <- getPlayer playerId
     let deck = player ^. T.deck
     if (length deck) >= numCards
-      then drawFromFull playerId numCards
+      then draw numCards
       else do
+        let inDeck = length deck
+        lastCards <- draw inDeck
         shuffleDeck playerId
-        drawFromFull playerId numCards
+        draw (numCards - inDeck) >>= return . (++lastCards)
+ where
+   draw numCards = do
+       player <- getPlayer playerId
+       let drawnCards = (take numCards (player ^. T.deck))
+       modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
+       return drawnCards
 
 -- | Like `modify` for the `State` monad, but works on players.
 -- Takes a player id and a function that modifies the player.
@@ -156,11 +165,11 @@ game strategies = do
 
 run :: T.GameState -> [T.Strategy] -> IO T.Result
 run state strategies = do
-              (_, newState) <- runStateT (game strategies) state
-              let cards = newState ^. T.cards
-              if gameOver cards
-                then returnResults newState
-                else run (over T.round (+1) newState) strategies
+  (_, newState) <- runStateT (game strategies) state
+  let cards = newState ^. T.cards
+  if gameOver cards
+    then returnResults newState
+    else run (over T.round (+1) newState) strategies
 
 returnResults :: T.GameState -> IO T.Result
 returnResults state = do
@@ -208,15 +217,6 @@ getPlayer playerId = do
 -- | Convenience function. @ 4 \`cardsOf\` estate @ is the same as @ take 4 . repeat $ estate @
 cardsOf count card = take count $ repeat card
 
-pileOf card
-  | card == CA.copper   = 60 `cardsOf` CA.copper
-  | card == CA.silver   = 40 `cardsOf` CA.silver
-  | card == CA.gold     = 30 `cardsOf` CA.gold
-  | card == CA.estate   = 12 `cardsOf` CA.estate
-  | card == CA.duchy    = 12 `cardsOf` CA.duchy
-  | card == CA.province = 12 `cardsOf` CA.province
-  | otherwise           = 10 `cardsOf` card
-
 eitherToBool :: (Either String ()) -> Bool
 eitherToBool (Left _) = False
 eitherToBool (Right _) = True
@@ -232,17 +232,6 @@ shuffleDeck_ player = set T.discard [] $ set T.deck newDeck player
                 hand    = player ^. T.hand
                 newDeck = unsafePerformIO $ deckShuffle (deck ++ discard ++ hand)
 
--- private method that gets called from `drawFromDeck`
--- only gets called when we know that the player has
--- at least 5 cards in his/her deck
--- returns the drawn cards and adds them to the player's hand
-drawFromFull :: T.PlayerId -> Int -> T.Dominion [T.Card]
-drawFromFull playerId numCards = do
-    player <- getPlayer playerId
-    let drawnCards = (take numCards (player ^. T.deck))
-    modifyPlayer playerId $ over T.deck (drop numCards) . over T.hand (++ drawnCards)
-    return drawnCards
-
 -- | Check that this player is able to purchase this card. Returns
 -- a `Right` if they can purchase the card, otherwise returns a `Left` with
 -- the reason why they can't purchase it.
@@ -251,9 +240,10 @@ validateBuy playerId card = do
     money <- handValue playerId
     state <- get
     player <- getPlayer playerId
+    cardGone <- pileEmpty card
     return $ do
       failIf (money < (card ^. T.cost)) $ printf "Not enough money. You have %d but this card costs %d" money (card ^. T.cost)
-      failIf (not (card `elem` (state ^. T.cards))) $ printf "We've run out of that card (%s)" (card ^. T.name)
+      failIf cardGone $ printf "We've run out of that card (%s)" (card ^. T.name)
       failIf ((player ^. T.buys) < 1) $ "You don't have any buys remaining!"
 
 -- | Check that this player is able to play this card. Returns
@@ -265,7 +255,8 @@ validatePlay playerId card = do
     return $ do
       failIf (not (isAction card)) $ printf "%s is not an action card" (card ^. T.name)
       failIf ((player ^. T.actions) < 1) $ "You don't have any actions remaining!"
-      failIf (not (card `elem` (player ^. T.hand))) $ printf "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
+      failIf (not (card `elem` (player ^. T.hand))) $ printf
+        "You can't play a %s because you don't have it in your hand!" (card ^. T.name)
 
 -- Discard this player's hand.
 discardHand :: T.PlayerId -> T.Dominion ()
@@ -477,7 +468,7 @@ playerId `usesEffect` effect@(T.OthersGainCurse x) = do
         modifyOtherPlayers playerId (over T.discard (card:))
         state <- get
         times (length (state ^. T.players) - 1) $ do
-          modify $ over T.cards (delete card)
+          modify $ over T.cards (decrement card)
           return ()
         return Nothing
 
