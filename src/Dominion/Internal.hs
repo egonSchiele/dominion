@@ -404,7 +404,7 @@ playerId `usesEffect` effect@(T.TrashCards x) = do
 playerId `usesEffect` effect@(T.OthersPlusCard x) = do
     log playerId ("Every other player draws " ++ show x ++ " card.")
     state <- get
-    let players = (indices state ^. T.players) \\ [playerId]
+    let players = indices (state ^. T.players) \\ [playerId]
     forM_ players $ \pid -> drawFromDeck pid 1
     return Nothing
 
@@ -445,9 +445,9 @@ playerId `usesEffect` T.MoneylenderEffect = do
 
 playerId `usesEffect` T.RemodelEffect = return $ Just (playerId, T.RemodelEffect)
 
-playerId `usesEffect` T.SpyEffect = return $ Just (playerId, effect)
+playerId `usesEffect` T.SpyEffect = return $ Just (playerId, T.SpyEffect)
 
-playerId `usesEffect` T.ThiefEffect = return $ Just (playerId, effect)
+playerId `usesEffect` T.ThiefEffect = return $ Just (playerId, T.ThiefEffect)
 
 playerId `usesEffect` (T.OthersGainCurse x) = do
     log playerId ("All other players gain " ++ show x ++ " curses.")
