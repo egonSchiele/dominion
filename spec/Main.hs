@@ -66,3 +66,10 @@ main = do
               playerId `plays` CA.market
               player <- getPlayer playerId
               return $ player ^. T.actions == 1 && player ^. T.extraMoney == 1 && player ^. T.buys == 2
+      describe "Feast" $ do
+        it "should only trash itself once" $ do
+          io True $ do
+            withHand (CA.throneRoom : replicate 3 CA.feast) $ \playerId -> do
+              playerId `plays` CA.throneRoom `with` (T.ThroneRoom CA.feast) `withMulti` (replicate 2 $ T.Feast CA.duchy)
+              player <- getPlayer playerId
+              return $ player ^. T.hand == replicate 2 CA.feast && player ^. T.discard == replicate 3 CA.duchy
