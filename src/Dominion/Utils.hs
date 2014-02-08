@@ -30,7 +30,7 @@ deckShuffle deck = do
     return shuffled
 
 -- times :: Monad m => Int -> m a -> [m b]
-times iterations block = forM_ [1..iterations] $ \_ -> block
+times iterations block = forM_ [1..iterations] $ const block
 
 indices :: [a] -> [Int]
 indices arr = [0..(length arr - 1)]

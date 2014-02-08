@@ -428,8 +428,8 @@ playerId `usesEffect` effect@(T.GainCardUpto x) = do
 -- How do I implement the logic for choosing that?
 -- Basically it allows the player to go through
 -- and choose the action card they want?
-playerId `usesEffect` effect@(T.LibraryEffect) = do
-    log playerId ("Drawing to 7 cards...")
+playerId `usesEffect` effect@T.LibraryEffect = do
+    log playerId "Drawing to 7 cards..."
     drawsUntil playerId $ \_ -> do
                  player <- getPlayer playerId
                  return $ length (player ^. T.hand) == 7
