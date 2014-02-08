@@ -54,10 +54,10 @@ main = do
             winners <- map T.winner <$> dominion ["sherlock" `uses` bigMoney, "watson" `uses` bigMoney2]
             return $ (count "watson" winners) >= (1.4 * (count "sherlock" winners))
 
-        it "bigMoneySmithy should win 1.1 times as often as bigMoney2" $ do
+        it "bigMoneySmithy should win more often than bigMoney2" $ do
           io True $ do
             winners <- map T.winner <$> dominionWithOpts [Cards [CA.smithy]] ["sherlock" `uses` bigMoneySmithy, "watson" `uses` bigMoney2]
-            return $ (count "sherlock" winners) >= (1.1 * (count "watson" winners))
+            return $ (count "sherlock" winners) >= (count "watson" winners)
 
         -- silly spec, shows an example of how to use `withHand`
         it "market should add to the players cards, buys, money, and actions" $ do
