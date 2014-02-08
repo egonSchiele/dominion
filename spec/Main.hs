@@ -1,23 +1,41 @@
-import Test.Hspec
-import Dominion
-import Dominion.Cards
-import qualified Dominion.Types as T
-import Control.Applicative
+import           Control.Applicative
+import           Control.Lens        hiding (has, indices, uses)
+import           Control.Monad.State hiding (state)
+import           Dominion
+import qualified Dominion.Cards      as CA
+import           Dominion.Internal
+import qualified Dominion.Types      as T
+import           Prelude             hiding (log)
+import           Test.Hspec
 
-bigMoney playerId = playerId `buysByPreference` [province, gold, duchy, silver, copper]
-stupidStrategy playerId = playerId `buysByPreference` [province, gold]
+-- | Use this to run a strategy once and inspect the gamestate.
+runOnce :: T.Player -> T.Strategy -> IO T.GameState
+runOnce player strategy = do
+  state <- makeGameState [] [player]
+  snd <$> runStateT (game [strategy]) state
+
+-- | Give a hand of cards and a function. You play one round
+-- with this given hand of cards. The function returns True or False.
+withHand :: [T.Card] -> (T.PlayerId -> T.Dominion Bool) -> IO Bool
+withHand hand func = do
+    let player = T.Player "testPlayer" (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] hand 1 1 0
+    state <- makeGameState [] [player]
+    fst <$> runStateT (func 0) state
+
+bigMoney playerId = playerId `buysByPreference` [CA.province, CA.gold, CA.duchy, CA.silver, CA.copper]
+stupidStrategy playerId = playerId `buysByPreference` [CA.province, CA.gold]
 
 bigMoney2 playerId = do
     roundNum <- getRound
     if (roundNum < 6)
-      then playerId `buysByPreference` [province, gold, silver]
+      then playerId `buysByPreference` [CA.province, CA.gold, CA.silver]
       else bigMoney playerId
 
 bigMoneySmithy playerId = do
-    playerId `plays` smithy
+    playerId `plays` CA.smithy
     roundNum <- getRound
     if (roundNum < 6)
-      then playerId `buysByPreference` [province, gold, smithy, silver]
+      then playerId `buysByPreference` [CA.province, CA.gold, CA.smithy, CA.silver]
       else bigMoney playerId
 
 io = flip shouldReturn
@@ -38,5 +56,13 @@ main = do
 
         it "bigMoneySmithy should win 1.1 times as often as bigMoney2" $ do
           io True $ do
-            winners <- map T.winner <$> dominionWithOpts [Cards [smithy]] ["sherlock" `uses` bigMoneySmithy, "watson" `uses` bigMoney2]
+            winners <- map T.winner <$> dominionWithOpts [Cards [CA.smithy]] ["sherlock" `uses` bigMoneySmithy, "watson" `uses` bigMoney2]
             return $ (count "sherlock" winners) >= (1.1 * (count "watson" winners))
+
+        -- silly spec, shows an example of how to use `withHand`
+        it "market should add to the players cards, buys, money, and actions" $ do
+          io True $ do
+            withHand [CA.market, CA.copper, CA.copper, CA.estate, CA.estate] $ \playerId -> do
+              playerId `plays` CA.market
+              player <- getPlayer playerId
+              return $ player ^. T.actions == 1 && player ^. T.extraMoney == 1 && player ^. T.buys == 2

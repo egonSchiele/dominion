@@ -9,11 +9,12 @@ module Dominion.Internal (
 import           Control.Applicative
 import           Control.Arrow
 import           Control.Lens        hiding (has, indices)
-import 	         Control.Monad       (liftM)
+import           Control.Monad       (liftM)
 import           Control.Monad.State hiding (state)
 import           Data.List
 import           Data.Map.Lazy       ((!))
 import qualified Data.Map.Lazy       as M
+import           Data.Maybe
 import           Data.Ord
 import qualified Dominion.Cards      as CA
 import qualified Dominion.Types      as T
@@ -157,6 +158,17 @@ playTurn playerId strategy = do
     -- these players need to be able to modify their deck accordingly
     -- even if its not their turn.
     setupForTurn playerId
+
+makeGameState :: [T.Option] -> [T.Player] -> IO T.GameState
+makeGameState options players = do
+    actionCards_ <- deckShuffle CA.allActionCards
+    let requiredCards = take 10 $ fromMaybe [] (findCards options)
+        verbose       = fromMaybe False (findLog options)
+        actionCards   = take (10 - length requiredCards) actionCards_ ++ requiredCards
+        cards         = M.fromList ([(CA.copper, 60), (CA.silver, 40), (CA.gold, 30),
+                                    (CA.estate, 12), (CA.duchy, 12), (CA.province, 12)]
+                                    ++ [(c, 10) | c <- actionCards])
+    return $ T.GameState players cards 1 verbose
 
 game :: [T.Strategy] -> T.Dominion ()
 game strategies = do
