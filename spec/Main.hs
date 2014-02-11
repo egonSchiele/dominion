@@ -16,10 +16,10 @@ runOnce player strategy = do
 
 -- | Give a hand of cards and a function. You play one round
 -- with this given hand of cards. The function returns True or False.
-withHand :: [T.Card] -> (T.PlayerId -> T.Dominion Bool) -> IO Bool
-withHand hand func = do
+withHand :: [T.Card] -> [T.Option] -> (T.PlayerId -> T.Dominion Bool) -> IO Bool
+withHand hand options func = do
     let player = T.Player "testPlayer" (7 `cardsOf` CA.copper ++ 3 `cardsOf` CA.estate) [] hand 1 1 0
-    state <- makeGameState [] [player]
+    state <- makeGameState options [player]
     fst <$> runStateT (func 0) state
 
 bigMoney playerId = playerId `buysByPreference` [CA.province, CA.gold, CA.duchy, CA.silver, CA.copper]
@@ -62,7 +62,7 @@ main = do
         -- silly spec, shows an example of how to use `withHand`
         it "market should add to the players cards, buys, money, and actions" $ do
           io True $ do
-            withHand [CA.market, CA.copper, CA.copper, CA.estate, CA.estate] $ \playerId -> do
+            withHand [CA.market, CA.copper, CA.copper, CA.estate, CA.estate] [] $ \playerId -> do
               playerId `plays` CA.market
               player <- getPlayer playerId
               return $ player ^. T.actions == 1 && player ^. T.extraMoney == 1 && player ^. T.buys == 2
