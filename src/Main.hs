@@ -29,4 +29,4 @@ chapelStrategy p = do
       then p `buysByPreference` [province, gold, laboratory, councilRoom, silver]
       else p `buysByPreference` [province, gold, duchy, silver, estate]
 
-main = dominionWithOpts [Cards [chapel, gardens, councilRoom], Iterations 1000] ["adit" `uses` chapelStrategy, "maggie" `uses` bigMoney]
+main = dominionWithOpts [Cards [chapel, laboratory, councilRoom, smithy], Iterations 5000] ["adit" `uses` chapelStrategy, "maggie" `uses` bigMoneySmithy]
