@@ -61,12 +61,13 @@ buys playerId card = do
       Left x -> return $ Left x
       Right _ -> do
                    money <- handValue playerId
+                   player <- getPlayer playerId
                    modifyPlayer playerId $ \p -> over T.discard (card:) $
                                                  over T.buys (subtract 1) $
                                                  -- this works because extraMoney can be negative
                                                  over T.extraMoney (subtract $ card ^. T.cost) p
                    modify $ over T.cards (decrement card)
-                   log playerId $ printf "bought a %s" (card ^. T.name)
+                   log playerId $ printf "bought a %s with %s" (card ^. T.name) (show $ map T._name $ player ^. T.hand)
                    return $ Right ()
 
 -- | Give an array of cards, in order of preference.
@@ -224,9 +225,15 @@ _with :: T.Followup -> T.FollowupAction -> T.Dominion (T.PlayResult (Maybe [T.Fo
   return $ Right Nothing
 
 (playerId, T.TrashCards x) `_with` (T.Chapel cards) = do
-  let toTrash = take x cards
-  forM_ toTrash $ \card_ -> playerId `trashesCard` card_
-  return $ Right Nothing
+  toTrash <- filterM (has playerId) cards
+  case toTrash of
+    [] -> return $ Right Nothing
+    (cardToTrash:rest) -> do
+      playerId `trashesCard` cardToTrash
+      log playerId $ "Trashed: " ++ (T._name cardToTrash)
+      if x == 1
+        then return $ Right Nothing
+        else (playerId, T.TrashCards (x-1)) `_with` (T.Chapel rest)
 
 (playerId, T.GainCardUpto x) `_with` (T.Feast card) = gainCardUpTo playerId x card
 (playerId, T.GainCardUpto x) `_with` (T.Workshop card) = gainCardUpTo playerId x card
