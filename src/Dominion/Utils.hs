@@ -2,9 +2,8 @@ module Dominion.Utils where
 import Control.Monad
 import Control.Monad.State
 import qualified Data.Map.Lazy as M
-import Data.Random.Extras
-import Data.Random hiding (shuffle)
-import System.Random
+import qualified System.Random as Random
+import qualified System.Random.Shuffle as Shuffle
 import Language.Haskell.HsColour.ANSI
 import Data.List
 
@@ -23,11 +22,7 @@ countBy func list = length $ filter func list
 for = flip map
 
 deckShuffle :: [a] -> IO [a]
-deckShuffle deck = do
-    gen <- getStdGen
-    let (shuffled, newGen) = sampleState (shuffle deck) gen
-    setStdGen newGen
-    return shuffled
+deckShuffle deck = Random.getStdRandom $ Shuffle.shuffle' deck
 
 -- times :: Monad m => Int -> m a -> [m b]
 times iterations block = forM_ [1..iterations] $ const block
