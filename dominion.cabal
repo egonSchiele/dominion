@@ -1,5 +1,5 @@
 name:                dominion
-version:             0.1.0.4
+version:             0.1.1.0
 homepage:            http://github.com/egonschiele/dominion
 license:             BSD3
 license-file:        LICENSE
@@ -21,10 +21,10 @@ Test-Suite test-dominion
   type:       exitcode-stdio-1.0
   build-depends:       base, mtl, lens, random, containers, dominion, hspec
   hs-source-dirs:      spec, src
-  main-is:             Main.hs
+  main-is:             Basic.hs
 
 Library
   Exposed-modules: Dominion, Dominion.Cards, Dominion.Cards.Base, Dominion.Cards.Original, Dominion.Cards.Intrigue, Dominion.Strategies, Dominion.Types, Dominion.Internal
   build-depends:       base, mtl, lens, random, containers
-  Other-modules: Dominion.Utils
+  Other-modules: Dominion.Utils, Language.Haskell.HsColour.ANSI, System.Random.Shuffle
   hs-source-dirs:      src
