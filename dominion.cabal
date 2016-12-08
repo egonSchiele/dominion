@@ -13,18 +13,18 @@ synopsis: A simulator for the board game Dominion.
 description: A simulator for the board game Dominion.
 
 executable dominion
-  build-depends:       base, mtl, lens, transformers, random, containers
+  build-depends:       base, mtl, lens, random, containers
   hs-source-dirs:      src
   main-is: Main.hs
 
 Test-Suite test-dominion
   type:       exitcode-stdio-1.0
-  build-depends:       base, mtl, lens, transformers, random, containers, dominion, hspec
+  build-depends:       base, mtl, lens, random, containers, dominion, hspec
   hs-source-dirs:      spec, src
   main-is:             Main.hs
 
 Library
   Exposed-modules: Dominion, Dominion.Cards, Dominion.Cards.Base, Dominion.Cards.Original, Dominion.Cards.Intrigue, Dominion.Strategies, Dominion.Types, Dominion.Internal
-  build-depends:       base, mtl, lens, transformers, random, containers
+  build-depends:       base, mtl, lens, random, containers
   Other-modules: Dominion.Utils
   hs-source-dirs:      src

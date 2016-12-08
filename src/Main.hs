@@ -3,8 +3,6 @@ import Dominion.Cards
 import Dominion.Strategies
 import Control.Monad hiding (join)
 import qualified Dominion.Types as T
-import Control.Monad.IO.Class
-
 
 chapelStrategy p = do
     chapels <- countNum p chapel
