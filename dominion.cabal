@@ -13,7 +13,7 @@ synopsis: A simulator for the board game Dominion.
 description: A simulator for the board game Dominion.
 
 executable dominion
-  build-depends:       base, mtl, lens, random, containers
+  build-depends:       base < 5, mtl, lens, random, containers
   hs-source-dirs:      src
   main-is: Main.hs
 
